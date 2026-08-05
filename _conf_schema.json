@@ -1,0 +1,17 @@
+{
+  "enable_charts": {
+    "description": "是否启用图表生成（需要 Pillow 库）",
+    "type": "bool",
+    "default": true
+  },
+  "max_events": {
+    "description": "最大事件日志数量",
+    "type": "int",
+    "default": 500
+  },
+  "enable_system_status": {
+    "description": "是否启用系统状态监控（需要 psutil 库）",
+    "type": "bool",
+    "default": true
+  }
+}
