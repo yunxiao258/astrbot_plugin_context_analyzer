@@ -1,7 +1,7 @@
 name: astrbot_plugin_context_analyzer
 display_name: 上下文分析插件
 desc: LLM 会话分析、系统状态监控、插件生命周期管理
-help: 发送「/context」分析当前会话上下文；「/status」查看系统状态；「/plugins」查看插件列表
-version: 1.0.0
+help: 发送「/context」分析当前会话上下文；「/status」查看系统状态；「/plugins」查看插件列表；「/log」查看事件日志；「/reset」重置缓存
+version: 1.1.0
 author: Administrator
 repo: https://github.com/yunxiao258/astrbot_plugin_context_analyzer
