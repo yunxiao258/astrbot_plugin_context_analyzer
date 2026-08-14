@@ -183,5 +183,107 @@ class TestManual(unittest.TestCase):
         self.assertIn("1 条", result[0].text)
 
 
+class FakeStar:
+    def __init__(self, name, version="1.0.0", activated=True, desc="d"):
+        self.name = name
+        self.version = version
+        self.activated = activated
+        self.desc = desc
+
+
+class FakeContext:
+    def __init__(self, stars):
+        self._stars = stars
+
+    def get_all_stars(self):
+        return self._stars
+
+
+class TestCommands(unittest.TestCase):
+    """命令处理器：/status /plugins /reset /log 的权限与行为"""
+
+    def _plugin(self, stars=None, admin_umos="default:GroupMessage:123"):
+        import tempfile
+        p = ContextAnalyzerPlugin(FakeContext(stars or []), {"admin_umos": admin_umos})
+        # 数据落盘重定向到临时目录，避免污染真实插件数据
+        tmp = tempfile.mkdtemp(prefix="ctx_cmd_test_")
+        p.data_dir = tmp
+        return p
+
+    def test_status_denied_for_non_admin(self):
+        import asyncio
+        p = self._plugin()
+        ev = FakeEvent("/status", umo="default:GroupMessage:999")
+        result = asyncio.run(p.analyze_status(ev))
+        self.assertIn("没有执行此命令的权限", result[0].text)
+
+    def test_reset_all_clears(self):
+        import asyncio
+        p = self._plugin()
+        p._plugin_events = [{"time": "t", "type": "loaded", "plugin": "p1", "details": {}}]
+        p._plugin_snapshots = {"p1": {"version": "1.0.0"}}
+        p._session_cache = {"k": "v"}
+        result = asyncio.run(p.reset_plugin(FakeEvent("reset")))
+        self.assertIn("已重置", result[0].text)
+        self.assertEqual(p._plugin_events, [])
+        self.assertEqual(p._plugin_snapshots, {})
+        self.assertEqual(p._session_cache, {})
+
+    def test_reset_single_plugin(self):
+        import asyncio
+        p = self._plugin()
+        p._plugin_events = [
+            {"time": "t", "type": "loaded", "plugin": "p1", "details": {}},
+            {"time": "t", "type": "error", "plugin": "p2", "details": {}},
+        ]
+        p._plugin_snapshots = {"p1": {}, "p2": {}}
+        result = asyncio.run(p.reset_plugin(FakeEvent("reset p1")))
+        self.assertIn("已重置插件: p1", result[0].text)
+        self.assertEqual(len(p._plugin_events), 1)
+        self.assertEqual(p._plugin_events[0]["plugin"], "p2")
+        self.assertNotIn("p1", p._plugin_snapshots)
+
+    def test_log_shows_and_filters(self):
+        import asyncio
+        p = self._plugin()
+        p._plugin_events = [
+            {"time": "2026-08-01T08:30:00", "type": "loaded", "plugin": "p1", "details": {}},
+            {"time": "2026-08-01T09:00:00", "type": "error", "plugin": "p2", "details": {}},
+        ]
+        result = asyncio.run(p.show_log(FakeEvent("log")))
+        self.assertIn("共 2 条", result[0].text)
+        self.assertIn("p1", result[0].text)
+        result2 = asyncio.run(p.show_log(FakeEvent("log p1")))
+        self.assertIn("共 1 条", result2[0].text)
+        self.assertNotIn("p2", result2[0].text)
+
+    def test_log_tolerates_bad_entries(self):
+        # 结构校验修复：坏条目（缺 type/time/plugin）不导致 /log 崩溃
+        import asyncio
+        p = self._plugin()
+        p._plugin_events = [{"foo": 1}, {"time": "2026-08-01T08:30:00", "type": "loaded", "plugin": "p1", "details": {}}]
+        result = asyncio.run(p.show_log(FakeEvent("log")))
+        self.assertIn("共 2 条", result[0].text)
+
+    def test_log_empty(self):
+        import asyncio
+        p = self._plugin()
+        p._plugin_events = []
+        result = asyncio.run(p.show_log(FakeEvent("log")))
+        self.assertIn("没有事件日志记录", result[0].text)
+
+    def test_plugins_reports_changes(self):
+        import asyncio
+        p = self._plugin(stars=[FakeStar("p1", "1.0.0", True), FakeStar("p2", "2.0.0", False)])
+        p._plugin_snapshots = {}
+        result = asyncio.run(p.analyze_plugins(FakeEvent("/plugins")))
+        text = result[0].text
+        self.assertIn("插件总数: 2", text)
+        self.assertIn("新增", text)
+        # 快照已更新，二次调用不再报"新增"
+        result2 = asyncio.run(p.analyze_plugins(FakeEvent("/plugins")))
+        self.assertNotIn("🆕 新增", result2[0].text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
