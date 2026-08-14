@@ -13,5 +13,10 @@
     "description": "是否启用系统状态监控（需要 psutil 库）",
     "type": "bool",
     "default": true
+  },
+  "admin_umos": {
+    "description": "管理员会话 UMO 白名单（/status、/plugins、/log、/reset 仅限此列表），多个用英文逗号分隔，如 default:GroupMessage:1234567890；留空则这些命令全部不可用",
+    "type": "string",
+    "default": ""
   }
 }

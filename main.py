@@ -1,5 +1,6 @@
-"""AstrBot 上下文分析插件：LLM 会话分析、系统状态监控、插件生命周期管理"""
+﻿"""AstrBot 上下文分析插件：LLM 会话分析、系统状态监控、插件生命周期管理"""
 
+import asyncio
 import json
 import os
 import time
@@ -16,7 +17,7 @@ from astrbot.core.star.star import StarMetadata
 PLUGIN_NAME = "astrbot_plugin_context_analyzer"
 PLUGIN_AUTHOR = "Administrator"
 PLUGIN_DESC = "LLM 上下文分析、系统状态监控、插件生命周期管理"
-PLUGIN_VERSION = "1.1.0"
+PLUGIN_VERSION = "1.1.1"
 
 # 无额外常量，直接使用 @filter.command 注册指令
 
@@ -48,6 +49,26 @@ class ContextAnalyzerPlugin(Star):
         logger.info(f"【{PLUGIN_NAME}】插件初始化完成")
 
     # ========== 工具方法 ==========
+
+    def _is_admin(self, event: AstrMessageEvent) -> bool:
+        """是否管理员会话（admin_umos 白名单）"""
+        umos = self._admin_umos()
+        return str(event.session) in umos if umos else False
+
+    def _admin_umos(self) -> list[str]:
+        v = self.config.get("admin_umos", "")
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return list(v or [])
+
+    def _deny(self) -> str:
+        umos = self._admin_umos()
+        if not umos:
+            return (
+                "本插件未配置管理员白名单（admin_umos），系统管理命令不可用。\n"
+                "请在插件配置中填写 admin_umos（如 default:GroupMessage:1234567890）后重启 AstrBot。"
+            )
+        return "你没有执行此命令的权限（不在 admin_umos 白名单内）"
 
     def _load_events(self):
         """从磁盘加载插件事件日志"""
@@ -281,17 +302,26 @@ class ContextAnalyzerPlugin(Star):
 
     @filter.command("status", priority=200)
     async def analyze_status(self, event: AstrMessageEvent) -> MessageEventResult | None:
-        """分析系统状态"""
+        """分析系统状态（管理员）"""
+        if not self._is_admin(event):
+            return self._send_text(event, self._deny())
         try:
             import psutil
 
-            # CPU 和内存
-            cpu_percent = psutil.cpu_percent(interval=1)
-            memory = psutil.virtual_memory()
-            disk = psutil.disk_usage('/')
+            # 资源采集移到线程池，避免阻塞事件循环
+            def _collect():
+                return {
+                    "cpu": psutil.cpu_percent(interval=1),
+                    "memory": psutil.virtual_memory(),
+                    "disk": psutil.disk_usage('/'),
+                    "connections": len(psutil.net_connections()),
+                }
 
-            # 网络连接
-            connections = len(psutil.net_connections())
+            res = await asyncio.to_thread(_collect)
+            cpu_percent = res["cpu"]
+            memory = res["memory"]
+            disk = res["disk"]
+            connections = res["connections"]
 
             # 进程信息
             process = psutil.Process()
@@ -351,7 +381,9 @@ class ContextAnalyzerPlugin(Star):
 
     @filter.command("plugins", priority=200)
     async def analyze_plugins(self, event: AstrMessageEvent) -> MessageEventResult | None:
-        """分析插件状态"""
+        """分析插件状态（管理员）"""
+        if not self._is_admin(event):
+            return self._send_text(event, self._deny())
         try:
             stars = self.context.get_all_stars()
             if not stars:
@@ -460,7 +492,9 @@ class ContextAnalyzerPlugin(Star):
 
     @filter.command("reset", priority=200)
     async def reset_plugin(self, event: AstrMessageEvent) -> MessageEventResult | None:
-        """重置插件（清空缓存和事件日志）"""
+        """重置插件（清空缓存和事件日志，管理员）"""
+        if not self._is_admin(event):
+            return self._send_text(event, self._deny())
         try:
             text = event.message_str.strip()
             import re
@@ -492,7 +526,9 @@ class ContextAnalyzerPlugin(Star):
 
     @filter.command("log", priority=200)
     async def show_log(self, event: AstrMessageEvent) -> MessageEventResult | None:
-        """显示插件事件日志"""
+        """显示插件事件日志（管理员）"""
+        if not self._is_admin(event):
+            return self._send_text(event, self._deny())
         try:
             text = event.message_str.strip()
             import re
