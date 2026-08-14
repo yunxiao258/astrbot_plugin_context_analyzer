@@ -19,7 +19,7 @@ from astrbot.core.star.star import StarMetadata
 PLUGIN_NAME = "astrbot_plugin_context_analyzer"
 PLUGIN_AUTHOR = "Administrator"
 PLUGIN_DESC = "LLM 上下文分析、系统状态监控、插件生命周期管理"
-PLUGIN_VERSION = "1.2.0"
+PLUGIN_VERSION = "1.2.1"
 
 # 无额外常量，直接使用 @filter.command 注册指令
 
@@ -76,12 +76,16 @@ class ContextAnalyzerPlugin(Star):
         return "你没有执行此命令的权限（不在 admin_umos 白名单内）"
 
     def _load_events(self):
-        """从磁盘加载插件事件日志"""
+        """从磁盘加载插件事件日志（校验结构，损坏/非预期格式时重置）"""
         try:
             events_file = os.path.join(self.data_dir, "plugin_events.json")
             if os.path.exists(events_file):
                 with open(events_file, "r", encoding="utf-8") as f:
-                    self._plugin_events = json.load(f)
+                    data = json.load(f)
+                if isinstance(data, list):
+                    self._plugin_events = data
+                else:
+                    logger.warning("插件事件日志格式异常，已重置")
         except Exception as e:
             logger.warning(f"加载插件事件日志失败: {e}")
 
@@ -98,12 +102,16 @@ class ContextAnalyzerPlugin(Star):
             logger.warning(f"保存插件事件日志失败: {e}")
 
     def _load_snapshots(self):
-        """从磁盘加载插件快照"""
+        """从磁盘加载插件快照（校验结构，损坏/非预期格式时重置）"""
         try:
             snap_file = os.path.join(self.data_dir, "plugin_snapshots.json")
             if os.path.exists(snap_file):
                 with open(snap_file, "r", encoding="utf-8") as f:
-                    self._plugin_snapshots = json.load(f)
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    self._plugin_snapshots = data
+                else:
+                    logger.warning("插件快照格式异常，已重置")
         except Exception as e:
             logger.warning(f"加载插件快照失败: {e}")
 
@@ -389,21 +397,25 @@ class ContextAnalyzerPlugin(Star):
         self._report_task = asyncio.create_task(self._report_loop())
 
     async def _report_loop(self):
-        """定时循环：每天到 report_time 发昨日日报；周一额外发周报"""
+        """定时循环：每天到 report_time 发昨日日报；周一随日报一并发送周报"""
         last_daily = ""
         last_weekly = ""
         while self._report_running:
             try:
                 now = datetime.now()
                 target = str(self.config.get("report_time", "08:00") or "08:00").strip()
+                # 校验 report_time 格式（HH:MM），非法值回退默认，避免永远不触发
+                if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", target):
+                    target = "08:00"
                 cur = now.strftime("%H:%M")
                 today = now.strftime("%Y-%m-%d")
-                # 日报：每日 report_time 触发，一天一次
-                if cur == target and last_daily != today and self._report_targets():
+                targets = self._report_targets()
+                # 日报：到达/越过 report_time 后一次性触发（防重复由 last_daily 保证）
+                if cur >= target and last_daily != today and targets:
                     last_daily = today
                     await self._send_report(self._build_daily_report(self._plugin_events))
-                # 周报：周一触发一次
-                if now.weekday() == 0 and last_weekly != today:
+                # 周报：周一且当日已到 report_time 时随日报一并发送
+                if now.weekday() == 0 and cur >= target and last_weekly != today and targets:
                     last_weekly = today
                     await self._send_report(self._build_weekly_report(self._plugin_events))
             except Exception as e:  # noqa: BLE001
@@ -499,14 +511,18 @@ class ContextAnalyzerPlugin(Star):
         try:
             import psutil
 
-            # 资源采集移到线程池，避免阻塞事件循环
+            # 资源采集移到线程池，避免阻塞事件循环（net_connections 在 Windows 可能 AccessDenied，单独兜底）
             def _collect():
-                return {
+                res = {
                     "cpu": psutil.cpu_percent(interval=1),
                     "memory": psutil.virtual_memory(),
                     "disk": psutil.disk_usage('/'),
-                    "connections": len(psutil.net_connections()),
                 }
+                try:
+                    res["connections"] = len(psutil.net_connections())
+                except Exception:
+                    res["connections"] = -1
+                return res
 
             res = await asyncio.to_thread(_collect)
             cpu_percent = res["cpu"]
@@ -536,7 +552,7 @@ class ContextAnalyzerPlugin(Star):
                 f"  🔥 CPU 使用率: {cpu_percent}%",
                 f"  💾 内存使用: {memory.percent}% ({memory.used // (1024**2)}MB / {memory.total // (1024**2)}MB)",
                 f"  💿 磁盘使用: {disk.percent}% ({disk.used // (1024**3)}GB / {disk.total // (1024**3)}GB)",
-                f"  🌐 网络连接数: {connections}",
+                f"  🌐 网络连接数: {'N/A（无权限读取）' if connections < 0 else connections}",
                 "",
                 "🔌 插件状态:",
                 f"  ✅ 已激活: {active_plugins} 个",
@@ -661,9 +677,11 @@ class ContextAnalyzerPlugin(Star):
                 report.append("")
                 report.append("📝 最近事件:")
                 for evt in reversed(recent_events):
-                    icon = self._event_icon(evt["type"])
-                    time_str = evt["time"].split("T")[1][:8] if "T" in evt["time"] else evt["time"]
-                    report.append(f"  {icon} {time_str} - {evt['plugin']}")
+                    ev_type = evt.get("type", "unknown")
+                    ev_time = evt.get("time", "")
+                    icon = self._event_icon(ev_type)
+                    time_str = ev_time.split("T")[1][:8] if "T" in ev_time else ev_time
+                    report.append(f"  {icon} {time_str} - {evt.get('plugin', '?')}")
 
             # 检查是否有 Pillow
             if self.config.get("enable_charts", True):
@@ -698,7 +716,7 @@ class ContextAnalyzerPlugin(Star):
             if plugin_name:
                 # 重置指定插件
                 self._plugin_snapshots.pop(plugin_name, None)
-                self._plugin_events = [e for e in self._plugin_events if e["plugin"] != plugin_name]
+                self._plugin_events = [e for e in self._plugin_events if e.get("plugin") != plugin_name]
                 self._save_events()
                 self._save_snapshots()
                 return self._send_text(event, f"✅ 已重置插件: {plugin_name}")
@@ -731,7 +749,7 @@ class ContextAnalyzerPlugin(Star):
 
             if plugin_name:
                 # 过滤指定插件的日志
-                events = [e for e in self._plugin_events if e["plugin"] == plugin_name]
+                events = [e for e in self._plugin_events if e.get("plugin") == plugin_name]
             else:
                 # 显示所有日志
                 events = self._plugin_events
@@ -748,9 +766,11 @@ class ContextAnalyzerPlugin(Star):
             ]
 
             for evt in reversed(recent):
-                icon = self._event_icon(evt["type"])
-                time_str = evt["time"].split("T")[1][:8] if "T" in evt["time"] else evt["time"]
-                report.append(f"{icon} {time_str} [{evt['plugin']}] {evt['type']}")
+                ev_type = evt.get("type", "unknown")
+                ev_time = evt.get("time", "")
+                icon = self._event_icon(ev_type)
+                time_str = ev_time.split("T")[1][:8] if "T" in ev_time else ev_time
+                report.append(f"{icon} {time_str} [{evt.get('plugin', '?')}] {ev_type}")
 
             if len(events) > 20:
                 report.append(f"\n... 还有 {len(events) - 20} 条历史记录")
