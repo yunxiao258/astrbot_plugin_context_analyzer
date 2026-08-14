@@ -18,5 +18,20 @@
     "description": "管理员会话 UMO 白名单（/status、/plugins、/log、/reset 仅限此列表），多个用英文逗号分隔，如 default:GroupMessage:1234567890；留空则这些命令全部不可用",
     "type": "string",
     "default": ""
+  },
+  "report_enabled": {
+    "description": "是否启用每日/每周自动报表（基于插件事件日志）",
+    "type": "bool",
+    "default": false
+  },
+  "report_umo": {
+    "description": "日报/周报推送目标会话 UMO，多个用英文逗号分隔，如 default:GroupMessage:1234567890",
+    "type": "string",
+    "default": ""
+  },
+  "report_time": {
+    "description": "每日日报触发时间（24 小时制 HH:MM），周报在每周一该时刻一并发送",
+    "type": "string",
+    "default": "08:00"
   }
 }

@@ -1,15 +1,17 @@
 ﻿"""AstrBot 上下文分析插件：LLM 会话分析、系统状态监控、插件生命周期管理"""
 
 import asyncio
+import csv
 import json
 import os
+import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.all import MessageChain, MessageEventResult
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.message_components import Image, Plain
+from astrbot.api.message_components import File, Image, Plain
 from astrbot.api.star import Context, Star, register
 from astrbot.core.star.star import StarMetadata
 
@@ -17,7 +19,7 @@ from astrbot.core.star.star import StarMetadata
 PLUGIN_NAME = "astrbot_plugin_context_analyzer"
 PLUGIN_AUTHOR = "Administrator"
 PLUGIN_DESC = "LLM 上下文分析、系统状态监控、插件生命周期管理"
-PLUGIN_VERSION = "1.1.2"
+PLUGIN_VERSION = "1.2.0"
 
 # 无额外常量，直接使用 @filter.command 注册指令
 
@@ -45,6 +47,9 @@ class ContextAnalyzerPlugin(Star):
 
         # 会话上下文缓存（内存）
         self._session_cache: dict[str, dict] = {}
+        # 日报/周报后台任务
+        self._report_task: asyncio.Task | None = None
+        self._report_running = False
 
         logger.info(f"【{PLUGIN_NAME}】插件初始化完成")
 
@@ -229,11 +234,197 @@ class ContextAnalyzerPlugin(Star):
 
         return history, source
 
+    # ========== 导出与日报/周报 ==========
+
+    def _exports_dir(self) -> str:
+        d = os.path.join(self.data_dir, "exports")
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def _build_export_data(self, history: list[dict], source: str) -> dict:
+        """构造导出数据结构"""
+        return {
+            "exported_at": datetime.now().isoformat(),
+            "source": source,
+            "message_count": len(history),
+            "messages": [{"role": m["role"], "text": m["text"]} for m in history],
+        }
+
+    def _write_export_file(self, data: dict, fmt: str) -> str:
+        """把导出数据写为 json/csv 文件，返回文件路径"""
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if fmt == "csv":
+            path = os.path.join(self._exports_dir(), f"context_export_{stamp}.csv")
+            with open(path, "w", encoding="utf-8-sig", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["role", "text"])
+                for m in data["messages"]:
+                    writer.writerow([m["role"], (m["text"] or "").replace("\n", " ")])
+            return path
+        path = os.path.join(self._exports_dir(), f"context_export_{stamp}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return path
+
+    async def _export_history(self, event: AstrMessageEvent) -> MessageEventResult | None:
+        """导出当前会话聊天记录为文件（管理员）"""
+        if not self._is_admin(event):
+            return self._send_text(event, self._deny())
+        fmt = "json"
+        fm = re.search(r"export\s+(json|csv)", event.message_str.strip(), re.I)
+        if fm:
+            fmt = fm.group(1).lower()
+        history, source = await self._get_session_history(event)
+        if not history:
+            return self._send_text(event, "📂 当前会话没有可导出的消息记录")
+        try:
+            data = self._build_export_data(history, source)
+            path = self._write_export_file(data, fmt)
+            name = os.path.basename(path)
+            await event.send(
+                MessageChain(
+                    [
+                        Plain(f"📂 已导出 {len(history)} 条消息（来源: {source}）"),
+                        File(name=name, file=path),
+                    ]
+                )
+            )
+            return None
+        except Exception as e:
+            logger.error(f"导出聊天记录失败: {e}")
+            return self._send_text(event, f"❌ 导出失败: {str(e)}")
+
+    @staticmethod
+    def _agg_events(events: list[dict], since: str) -> tuple[int, dict, list[dict]]:
+        """统计 since 之后的事件：返回 (总数, 类型分布 dict, 错误事件列表)"""
+        total = 0
+        by_type: dict[str, int] = {}
+        errors = []
+        for e in events:
+            if e.get("time", "") < since:
+                continue
+            total += 1
+            t = e.get("type", "unknown")
+            by_type[t] = by_type.get(t, 0) + 1
+            if t == "error":
+                errors.append(e)
+        return total, by_type, errors
+
+    def _build_daily_report(self, events: list[dict]) -> str:
+        """构建某日报表文本（基于插件事件日志）"""
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        since = f"{yesterday}T00:00:00"
+        total, by_type, errors = self._agg_events(events, since)
+        label = f"{yesterday} 插件事件日报"
+        if total == 0:
+            return f"📅 {label}\n昨天没有记录到任何插件事件。"
+        lines = [f"📅 {label}", "━━━━━━━━━━━━━━━━━━━━━━", f"🔢 事件总数: {total} 条"]
+        type_zh = {
+            "loaded": "插件加载", "unloaded": "插件卸载", "error": "运行错误",
+            "new": "新增", "updated": "更新", "deleted": "删除",
+        }
+        for t, n in sorted(by_type.items(), key=lambda x: -x[1]):
+            lines.append(f"  {type_zh.get(t, t)}: {n} 条")
+        if errors:
+            lines.append("")
+            lines.append(f"❌ 出错插件（{len(errors)} 个）:")
+            for e in errors[:8]:
+                lines.append(f"  - {e.get('plugin', '?')}: {(e.get('details') or {}).get('error', '')[:40]}")
+        return "\n".join(lines)
+
+    def _build_weekly_report(self, events: list[dict]) -> str:
+        """构建周报文本（最近 7 天聚合）"""
+        since = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%dT00:00:00")
+        total, by_type, errors = self._agg_events(events, since)
+        label = "最近 7 天插件事件周报"
+        if total == 0:
+            return f"📊 {label}\n近 7 天没有记录到任何插件事件。"
+        lines = [f"📊 {label}", "━━━━━━━━━━━━━━━━━━━━━━", f"🔢 事件总数: {total} 条"]
+        type_zh = {
+            "loaded": "插件加载", "unloaded": "插件卸载", "error": "运行错误",
+            "new": "新增", "updated": "更新", "deleted": "删除",
+        }
+        for t, n in sorted(by_type.items(), key=lambda x: -x[1]):
+            lines.append(f"  {type_zh.get(t, t)}: {n} 条")
+        if errors:
+            lines.append("")
+            lines.append(f"❌ 出错插件（{len(errors)} 个）:")
+            for e in errors[:10]:
+                lines.append(f"  - {e.get('plugin', '?')}: {(e.get('details') or {}).get('error', '')[:40]}")
+        return "\n".join(lines)
+
+    async def _manual_daily(self, event: AstrMessageEvent) -> MessageEventResult | None:
+        """手动生成昨日日报（管理员）"""
+        if not self._is_admin(event):
+            return self._send_text(event, self._deny())
+        return self._send_text(event, self._build_daily_report(self._plugin_events))
+
+    async def _manual_weekly(self, event: AstrMessageEvent) -> MessageEventResult | None:
+        """手动生成周报（管理员）"""
+        if not self._is_admin(event):
+            return self._send_text(event, self._deny())
+        return self._send_text(event, self._build_weekly_report(self._plugin_events))
+
+    def _report_targets(self) -> list[str]:
+        v = self.config.get("report_umo", "")
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return list(v or [])
+
+    async def _send_report(self, text: str):
+        for umo in self._report_targets():
+            try:
+                await self.context.send_message(umo, MessageChain([Plain(text)]))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"发送日报到 {umo} 失败: {e}")
+
+    @filter.on_astrbot_loaded()
+    async def _start_report_loop(self):
+        """AstrBot 加载完成后启动日报/周报定时任务"""
+        if not self.config.get("report_enabled", False):
+            return
+        if self._report_running:
+            return
+        self._report_running = True
+        self._report_task = asyncio.create_task(self._report_loop())
+
+    async def _report_loop(self):
+        """定时循环：每天到 report_time 发昨日日报；周一额外发周报"""
+        last_daily = ""
+        last_weekly = ""
+        while self._report_running:
+            try:
+                now = datetime.now()
+                target = str(self.config.get("report_time", "08:00") or "08:00").strip()
+                cur = now.strftime("%H:%M")
+                today = now.strftime("%Y-%m-%d")
+                # 日报：每日 report_time 触发，一天一次
+                if cur == target and last_daily != today and self._report_targets():
+                    last_daily = today
+                    await self._send_report(self._build_daily_report(self._plugin_events))
+                # 周报：周一触发一次
+                if now.weekday() == 0 and last_weekly != today:
+                    last_weekly = today
+                    await self._send_report(self._build_weekly_report(self._plugin_events))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"日报/周报任务异常: {e}")
+            await asyncio.sleep(30)
+
     # ========== 指令处理 ==========
 
     @filter.command("context", priority=200)
     async def analyze_context(self, event: AstrMessageEvent) -> MessageEventResult | None:
-        """分析当前会话上下文"""
+        """分析当前会话上下文；子命令：export / daily / weekly"""
+        # 子命令分发：/context export|daily|weekly
+        text = event.message_str.strip()
+        m = re.search(r"\b(export|daily|日报|weekly|周报)\b", text)
+        sub = m.group(1) if m else ""
+        if sub == "export":
+            return await self._export_history(event)
+        if sub in ("daily", "日报"):
+            return await self._manual_daily(event)
+        if sub in ("weekly", "周报"):
+            return await self._manual_weekly(event)
         try:
             # 获取会话历史（优先 LLM 会话上下文，回退平台消息历史）
             history, source = await self._get_session_history(event)
@@ -757,6 +948,8 @@ class ContextAnalyzerPlugin(Star):
 
     async def terminate(self):
         """插件卸载时清理"""
+        if self._report_task:
+            self._report_task.cancel()
         try:
             self._save_events()
         except Exception:
