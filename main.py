@@ -17,7 +17,7 @@ from astrbot.core.star.star import StarMetadata
 PLUGIN_NAME = "astrbot_plugin_context_analyzer"
 PLUGIN_AUTHOR = "Administrator"
 PLUGIN_DESC = "LLM 上下文分析、系统状态监控、插件生命周期管理"
-PLUGIN_VERSION = "1.1.1"
+PLUGIN_VERSION = "1.1.2"
 
 # 无额外常量，直接使用 @filter.command 注册指令
 
@@ -587,22 +587,31 @@ class ContextAnalyzerPlugin(Star):
             pass
         return None
 
-    def _generate_context_chart(self, role_counts: dict, total_messages: int, total_tokens: int) -> str | None:
-        """生成上下文分析图表（需要 Pillow）"""
+    def _new_chart(self, title: str, width: int, height: int, filename: str) -> tuple | None:
+        """图表公共骨架：创建白底图 + 标题，返回 (img, draw, font_title, font_label, path)；Pillow 不可用时返回 None"""
         try:
             from PIL import Image, ImageDraw
         except ImportError:
             return None
-
         try:
             font_title = self._load_chart_font(20)
             font_label = self._load_chart_font(16)
-            width, height = 600, 400
             img = Image.new('RGB', (width, height), color='white')
             draw = ImageDraw.Draw(img)
+            draw.text((20, 20), title, fill='black', font=font_title)
+            return img, draw, font_title, font_label, os.path.join(self.data_dir, filename)
+        except Exception as e:
+            logger.warning(f"创建图表失败: {e}")
+            return None
 
-            # 标题
-            draw.text((20, 20), "会话上下文分析", fill='black', font=font_title)
+    def _generate_context_chart(self, role_counts: dict, total_messages: int, total_tokens: int) -> str | None:
+        """生成上下文分析图表（需要 Pillow）"""
+        base = self._new_chart("会话上下文分析", 600, 400, "context_chart.png")
+        if base is None:
+            return None
+
+        try:
+            img, draw, font_title, font_label, chart_path = base
 
             # 饼图数据
             labels = ['用户消息', '助手回复', '系统消息']
@@ -621,7 +630,6 @@ class ContextAnalyzerPlugin(Star):
                 draw.text((x, 260), f"{label}\n{value}条", fill='black', font=font_label)
 
             # 保存
-            chart_path = os.path.join(self.data_dir, "context_chart.png")
             img.save(chart_path)
             return chart_path
 
@@ -631,20 +639,12 @@ class ContextAnalyzerPlugin(Star):
 
     def _generate_status_chart(self, cpu: float, memory: float, disk: float) -> str | None:
         """生成系统状态图表（需要 Pillow）"""
-        try:
-            from PIL import Image, ImageDraw
-        except ImportError:
+        base = self._new_chart("系统状态", 600, 200, "status_chart.png")
+        if base is None:
             return None
 
         try:
-            font_title = self._load_chart_font(20)
-            font_label = self._load_chart_font(16)
-            width, height = 600, 200
-            img = Image.new('RGB', (width, height), color='white')
-            draw = ImageDraw.Draw(img)
-
-            # 标题
-            draw.text((20, 20), "系统状态", fill='black', font=font_title)
+            img, draw, font_title, font_label, chart_path = base
 
             # 仪表盘
             metrics = [("CPU", cpu), ("内存", memory), ("磁盘", disk)]
@@ -657,7 +657,6 @@ class ContextAnalyzerPlugin(Star):
                 draw.arc([x, 60, x + 80, 140], 0, angle, fill='green', width=3)
                 draw.text((x + 10, 150), f"{label}: {value:.1f}%", fill='black', font=font_label)
 
-            chart_path = os.path.join(self.data_dir, "status_chart.png")
             img.save(chart_path)
             return chart_path
 
@@ -667,20 +666,12 @@ class ContextAnalyzerPlugin(Star):
 
     def _generate_plugins_chart(self, stars: list) -> str | None:
         """生成插件状态图表（需要 Pillow）"""
-        try:
-            from PIL import Image, ImageDraw
-        except ImportError:
+        base = self._new_chart("插件状态", 600, 300, "plugins_chart.png")
+        if base is None:
             return None
 
         try:
-            font_title = self._load_chart_font(20)
-            font_label = self._load_chart_font(16)
-            width, height = 600, 300
-            img = Image.new('RGB', (width, height), color='white')
-            draw = ImageDraw.Draw(img)
-
-            # 标题
-            draw.text((20, 20), "插件状态", fill='black', font=font_title)
+            img, draw, font_title, font_label, chart_path = base
 
             # 激活/未激活数量
             active = sum(1 for s in stars if s.activated)
