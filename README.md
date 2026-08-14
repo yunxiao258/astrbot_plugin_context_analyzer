@@ -11,7 +11,7 @@ AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监�
 - 角色分布（用户 / 助手 / 系统 / 其他，`tool` 等角色计入"其他"）
 - 最近 5 条消息预览
 - 子命令（仅管理员）：
-  - `/context export`：导出当前会话历史为文件（json / csv 格式）
+  - `/context export`：导出当前会话历史为文件（json / csv 格式），支持 `export [json|csv] [条数]` 筛选最近 N 条
   - `/context daily`（别名 `/context 日报`）：手动生成并发送插件事件日报
   - `/context weekly`（别名 `/context 周报`）：手动生成并发送插件事件周报
 
@@ -91,7 +91,7 @@ pip install Pillow psutil
 | 指令 | 说明 | 权限 |
 |------|------|------|
 | `/context` | 分析当前会话上下文 | 所有人 |
-| `/context export` | 导出会话历史为文件 | 管理员 |
+| `/context export` | 导出会话历史为文件（`export [json\|csv] [条数]` 可选筛选） | 管理员 |
 | `/context daily` | 手动生成事件日报 | 管理员 |
 | `/context weekly` | 手动生成事件周报 | 管理员 |
 | `/status` | 查看系统状态 | 管理员 |

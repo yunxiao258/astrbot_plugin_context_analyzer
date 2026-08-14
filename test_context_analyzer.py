@@ -153,6 +153,47 @@ class TestExport(unittest.TestCase):
         self.assertGreaterEqual(len(comps), 2)
         self.assertTrue(any(getattr(c, "name", None) for c in comps))
 
+    def test_export_limit_keeps_recent(self):
+        import asyncio
+        p = make_plugin()
+        async def fake_history(event):  # noqa: ARG001
+            return ([{"role": "user", "text": f"msg{i}"} for i in range(10)], "会话上下文")
+        p._get_session_history = fake_history
+        event = FakeEvent("context export json 3")
+        asyncio.run(p._export_history(event))
+        chain = event.sent[0]
+        plain = next(c for c in chain.chain if hasattr(c, "text"))
+        self.assertIn("3/10", plain.text)
+        self.assertIn("最近 3 条", plain.text)
+
+    def test_export_limit_zero_means_all(self):
+        import asyncio
+        p = make_plugin()
+        async def fake_history(event):  # noqa: ARG001
+            return ([{"role": "user", "text": f"msg{i}"} for i in range(5)], "会话上下文")
+        p._get_session_history = fake_history
+        event = FakeEvent("context export csv")
+        asyncio.run(p._export_history(event))
+        chain = event.sent[0]
+        plain = next(c for c in chain.chain if hasattr(c, "text"))
+        self.assertIn("5/5", plain.text)
+        self.assertNotIn("最近", plain.text)
+
+    def test_export_parses_csv_and_limit(self):
+        import asyncio
+        p = make_plugin()
+        async def fake_history(event):  # noqa: ARG001
+            return ([{"role": "user", "text": f"msg{i}"} for i in range(6)], "会话上下文")
+        p._get_session_history = fake_history
+        event = FakeEvent("context export csv 2")
+        asyncio.run(p._export_history(event))
+        chain = event.sent[0]
+        comps = getattr(chain, "chain", [chain])
+        file_comp = next(c for c in comps if getattr(c, "name", None))
+        self.assertTrue(file_comp.name.endswith(".csv"))
+        plain = next(c for c in comps if hasattr(c, "text"))
+        self.assertIn("2/6", plain.text)
+
 
 class TestReportTargets(unittest.TestCase):
     def test_parse_list(self):

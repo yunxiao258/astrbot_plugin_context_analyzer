@@ -275,24 +275,33 @@ class ContextAnalyzerPlugin(Star):
         return path
 
     async def _export_history(self, event: AstrMessageEvent) -> MessageEventResult | None:
-        """导出当前会话聊天记录为文件（管理员）"""
+        """导出当前会话聊天记录为文件（管理员）；支持 /context export [json|csv] [条数]"""
         if not self._is_admin(event):
             return self._send_text(event, self._deny())
         fmt = "json"
         fm = re.search(r"export\s+(json|csv)", event.message_str.strip(), re.I)
         if fm:
             fmt = fm.group(1).lower()
+        # 可选条数筛选：/context export json 50（导出最近 50 条）
+        limit = 0
+        lm = re.search(r"\b(\d{1,5})\b", event.message_str.strip())
+        if lm:
+            limit = int(lm.group(1))
         history, source = await self._get_session_history(event)
         if not history:
             return self._send_text(event, "📂 当前会话没有可导出的消息记录")
+        total = len(history)
+        if limit > 0:
+            history = history[-limit:]
         try:
             data = self._build_export_data(history, source)
             path = self._write_export_file(data, fmt)
             name = os.path.basename(path)
+            tail = f"（最近 {limit} 条）" if limit else ""
             await event.send(
                 MessageChain(
                     [
-                        Plain(f"📂 已导出 {len(history)} 条消息（来源: {source}）"),
+                        Plain(f"📂 已导出 {len(history)}/{total} 条消息{tail}（来源: {source}）"),
                         File(name=name, file=path),
                     ]
                 )
