@@ -96,8 +96,11 @@ class ContextAnalyzerPlugin(Star):
             # 只保留最近 max_events 条事件（同时截断内存列表，避免无限增长）
             max_events = int(self.config.get("max_events", 500) or 500)
             self._plugin_events = self._plugin_events[-max_events:]
-            with open(events_file, "w", encoding="utf-8") as f:
+            os.makedirs(os.path.dirname(events_file), exist_ok=True)
+            tmp = events_file + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self._plugin_events, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, events_file)
         except Exception as e:
             logger.warning(f"保存插件事件日志失败: {e}")
 
@@ -119,8 +122,11 @@ class ContextAnalyzerPlugin(Star):
         """保存插件快照到磁盘"""
         try:
             snap_file = os.path.join(self.data_dir, "plugin_snapshots.json")
-            with open(snap_file, "w", encoding="utf-8") as f:
+            os.makedirs(os.path.dirname(snap_file), exist_ok=True)
+            tmp = snap_file + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self._plugin_snapshots, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, snap_file)
         except Exception as e:
             logger.warning(f"保存插件快照失败: {e}")
 
