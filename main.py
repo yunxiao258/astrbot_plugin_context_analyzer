@@ -19,9 +19,64 @@ from astrbot.core.star.star import StarMetadata
 PLUGIN_NAME = "astrbot_plugin_context_analyzer"
 PLUGIN_AUTHOR = "Administrator"
 PLUGIN_DESC = "LLM 上下文分析、系统状态监控、插件生命周期管理"
-PLUGIN_VERSION = "1.2.1"
+PLUGIN_VERSION = "1.3.0"
 
-# 无额外常量，直接使用 @filter.command 注册指令
+# ========== 内置中文情绪词典（积极 ≥80 词） ==========
+POSITIVE_WORDS: tuple[str, ...] = (
+    "开心", "高兴", "快乐", "愉快", "兴奋", "喜悦", "欢喜", "满意", "满足", "幸福",
+    "幸运", "美好", "美滋滋", "很棒", "真棒", "太棒", "点赞", "真赞", "厉害", "真厉害",
+    "优秀", "给力", "加油", "不错", "真不错", "好耶", "绝了", "真绝", "yyds", "666",
+    "真牛", "牛逼", "太牛", "真爽", "太爽", "惊艳", "惊喜", "喜欢", "爱了", "爱死",
+    "超爱", "感动", "暖心", "温暖", "温馨", "甜蜜", "笑死", "哈哈", "嘿嘿", "嘻嘻",
+    "哇塞", "妙啊", "精彩", "完美", "满分", "好评", "划算", "赚了", "中奖", "成功",
+    "胜利", "赢了", "搞定", "通过", "恢复", "好转", "提升", "增长", "进步", "顺利",
+    "好运", "棒棒哒", "可爱", "可可爱爱", "双赢", "爽歪歪", "冲鸭", "加油鸭", "太可爱", "好喜欢",
+    "真喜欢", "开心死", "高兴死", "快乐死", "幸福死", "真香", "宝藏",
+)
+
+# ========== 内置中文情绪词典（消极 ≥80 词） ==========
+NEGATIVE_WORDS: tuple[str, ...] = (
+    "难过", "伤心", "悲伤", "痛苦", "绝望", "崩溃", "裂开", "无语", "烦死", "烦躁",
+    "焦虑", "担心", "害怕", "恐惧", "生气", "愤怒", "恼火", "讨厌", "恶心", "反感",
+    "失望", "沮丧", "郁闷", "憋屈", "委屈", "心塞", "扎心", "难受", "头疼", "好累",
+    "疲惫", "疲倦", "困死", "无聊", "没意思", "烦人", "垃圾", "太差", "差劲", "糟糕",
+    "完蛋", "失败", "输了", "亏了", "亏死", "后悔", "心疼", "心碎", "哭了", "呜呜",
+    "泪目", "想哭", "哭死", "心态崩", "破防", "emo", "自闭", "摆烂", "躺平", "咸鱼",
+    "社死", "尴尬", "丢人", "丢脸", "出丑", "被坑", "踩坑", "翻车", "炸了", "气死",
+    "气炸", "火大", "脑溢血", "想吐", "受不了", "扛不住", "顶不住", "撑不住", "放弃", "没救了",
+    "凉了", "凉凉", "白费", "白搭", "泡汤", "黄了", "吹了", "亏本", "赔钱", "被骗",
+    "上当", "崩溃了", "心累", "绝望死", "难受死", "恶心死",
+)
+
+# ========== 话题分析内置停用词表 ==========
+# 双字及以上停用词（精确过滤）
+STOP_WORDS: frozenset[str] = frozenset({
+    "我们", "你们", "他们", "她们", "它们", "这个", "那个", "这些", "那些",
+    "什么", "怎么", "为什么", "因为", "所以", "但是", "可是", "然后", "而且",
+    "或者", "如果", "虽然", "即使", "已经", "正在", "将要", "可以", "可能",
+    "应该", "必须", "一定", "非常", "就是", "还是", "只是", "不过", "并且",
+    "以及", "一下", "一点", "一个", "一种", "一天", "一会儿", "大家", "今天",
+    "明天", "昨天", "现在", "时候", "这样", "那样", "等等", "之类", "来说",
+    "而言", "关于", "对于", "通过", "进行", "没有", "不是", "还有", "其实",
+    "真的", "确实", "果然", "反正", "当然", "毕竟", "居然", "竟然", "到底",
+    "究竟", "稍微", "有点", "有些", "一直", "一起", "一般", "刚才", "刚刚",
+    "马上", "立刻", "突然", "忽然", "最终", "最后", "开始", "结束", "东西",
+    "事情", "问题", "情况", "时候", "还有", "觉得", "知道", "看到", "听到",
+})
+# 单字停用字（用于双字词/多字词过滤规则）
+STOP_CHARS: frozenset[str] = frozenset(
+    "的了吗呢啊吧呀哦嗯哈嘿诶哎哟哇嘛啦也都就是有在不没我你他她它"
+    "这那什么怎为因所但而或如虽即已正将可能应该必须定非常太真只过"
+    "并且以及一点大家等之类来说言关对进行好很最更再又才别要会想"
+    "说看到去给把被让叫用做"
+)
+
+# ========== 会话自动摘要常量 ==========
+SESSION_GAP_SECONDS = 600  # 相邻消息间隔超过 10 分钟视为新会话
+SESSION_SUMMARY_THRESHOLD = 50  # 单场会话消息数 ≥50 触发自动摘要
+SESSION_MAX_MSGS = 100  # 内存中每个会话最多保留的消息条数
+SENTIMENT_POSITIVE_THRESHOLD = 0.05  # 情绪分数高于该值判为积极
+SENTIMENT_NEGATIVE_THRESHOLD = -0.05  # 情绪分数低于该值判为消极
 
 
 @register(PLUGIN_NAME, PLUGIN_AUTHOR, PLUGIN_DESC, PLUGIN_VERSION)
@@ -50,6 +105,16 @@ class ContextAnalyzerPlugin(Star):
         # 日报/周报后台任务
         self._report_task: asyncio.Task | None = None
         self._report_running = False
+
+        # ===== 新增：情绪趋势 / 话题聚类 / 会话自动摘要 =====
+        # 每日统计（消息数、情绪分布、话题词频），独立文件持久化，保留最近 30 天
+        self._daily_stats: dict[str, dict] = {}
+        self._stats_save_counter = 0
+        self._load_daily_stats()
+        # 群活跃会话跟踪（内存）：umo -> {"start_ts", "last_ts", "count", "summarized", "msgs"}
+        self._active_sessions: dict[str, dict] = {}
+        # LLM 话题一句话摘要缓存（内存）：date_str -> 摘要
+        self._topic_summaries: dict[str, str] = {}
 
         logger.info(f"【{PLUGIN_NAME}】插件初始化完成")
 
@@ -337,25 +402,31 @@ class ContextAnalyzerPlugin(Star):
         return total, by_type, errors
 
     def _build_daily_report(self, events: list[dict]) -> str:
-        """构建某日报表文本（基于插件事件日志）"""
+        """构建某日报表文本（插件事件日志 + 情绪/话题分析段落）"""
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         since = f"{yesterday}T00:00:00"
         total, by_type, errors = self._agg_events(events, since)
         label = f"{yesterday} 插件事件日报"
         if total == 0:
-            return f"📅 {label}\n昨天没有记录到任何插件事件。"
-        lines = [f"📅 {label}", "━━━━━━━━━━━━━━━━━━━━━━", f"🔢 事件总数: {total} 条"]
-        type_zh = {
-            "loaded": "插件加载", "unloaded": "插件卸载", "error": "运行错误",
-            "new": "新增", "updated": "更新", "deleted": "删除",
-        }
-        for t, n in sorted(by_type.items(), key=lambda x: -x[1]):
-            lines.append(f"  {type_zh.get(t, t)}: {n} 条")
-        if errors:
+            lines = [f"📅 {label}", "昨天没有记录到任何插件事件。"]
+        else:
+            lines = [f"📅 {label}", "━━━━━━━━━━━━━━━━━━━━━━", f"🔢 事件总数: {total} 条"]
+            type_zh = {
+                "loaded": "插件加载", "unloaded": "插件卸载", "error": "运行错误",
+                "new": "新增", "updated": "更新", "deleted": "删除",
+            }
+            for t, n in sorted(by_type.items(), key=lambda x: -x[1]):
+                lines.append(f"  {type_zh.get(t, t)}: {n} 条")
+            if errors:
+                lines.append("")
+                lines.append(f"❌ 出错插件（{len(errors)} 个）:")
+                for e in errors[:8]:
+                    lines.append(f"  - {e.get('plugin', '?')}: {(e.get('details') or {}).get('error', '')[:40]}")
+        # 附加：情绪分布 + 最近 7 天情绪趋势 + 今日话题 Top5（不影响原有内容）
+        extra = self._build_daily_analysis_section(yesterday)
+        if extra:
             lines.append("")
-            lines.append(f"❌ 出错插件（{len(errors)} 个）:")
-            for e in errors[:8]:
-                lines.append(f"  - {e.get('plugin', '?')}: {(e.get('details') or {}).get('error', '')[:40]}")
+            lines.append(extra)
         return "\n".join(lines)
 
     def _build_weekly_report(self, events: list[dict]) -> str:
@@ -448,6 +519,359 @@ class ContextAnalyzerPlugin(Star):
                 logger.warning(f"日报/周报任务异常: {e}")
             await asyncio.sleep(30)
 
+    # ========== 情绪趋势分析（内置词典 + 块字符趋势图） ==========
+
+    def _score_sentiment(self, text) -> float:
+        """情绪打分：词典匹配逐词累加（积极 +1 / 消极 -1），归一化到 [-1, 1]。
+
+        归一化公式: (积极次数 - 消极次数) / (积极次数 + 消极次数)；无命中返回 0。
+        脏输入（None、非字符串）防御性返回 0，不抛异常。
+        """
+        if not text or not isinstance(text, str):
+            return 0.0
+        pos = sum(text.count(w) for w in POSITIVE_WORDS)
+        neg = sum(text.count(w) for w in NEGATIVE_WORDS)
+        if pos + neg == 0:
+            return 0.0
+        return (pos - neg) / (pos + neg)
+
+    @staticmethod
+    def _classify_sentiment(score: float) -> str:
+        """按分数将情绪分为 积极/中性/消极 三类"""
+        if score > SENTIMENT_POSITIVE_THRESHOLD:
+            return "积极"
+        if score < SENTIMENT_NEGATIVE_THRESHOLD:
+            return "消极"
+        return "中性"
+
+    def _build_mood_trend(self, days: int = 7) -> str:
+        """最近 N 天情绪趋势文本图（块字符条形图，每行一天，最多 10 格）"""
+        lines = []
+        now = datetime.now()
+        for i in range(days - 1, -1, -1):
+            d = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+            stat = self._daily_stats.get(d) or {}
+            pos = int(stat.get("pos") or 0)
+            neu = int(stat.get("neu") or 0)
+            neg = int(stat.get("neg") or 0)
+            total = pos + neu + neg
+            if total == 0:
+                lines.append(f"  {d[5:]} │ 无数据")
+                continue
+            pos_b = round(pos / total * 10)
+            neg_b = round(neg / total * 10)
+            neu_b = max(0, 10 - pos_b - neg_b)
+            bar = "█" * pos_b + "·" * neu_b + "░" * neg_b
+            lines.append(
+                f"  {d[5:]} │ {bar} 积极 {pos / total * 100:.0f}% "
+                f"中性 {neu / total * 100:.0f}% 消极 {neg / total * 100:.0f}%（{total} 条）"
+            )
+        return "\n".join(lines)
+
+    def _build_mood_section(self, date_str: str) -> str:
+        """指定日期的情绪分布一行摘要；无数据返回空串"""
+        stat = self._daily_stats.get(date_str) or {}
+        total = int(stat.get("msg_count") or 0)
+        if total <= 0:
+            return ""
+        pos = int(stat.get("pos") or 0)
+        neu = int(stat.get("neu") or 0)
+        neg = int(stat.get("neg") or 0)
+        denom = max(pos + neu + neg, 1)
+        return (
+            f"😊 情绪分布: 积极 {pos / denom * 100:.1f}% · 中性 {neu / denom * 100:.1f}% · "
+            f"消极 {neg / denom * 100:.1f}%（共 {total} 条消息）"
+        )
+
+    # ========== 话题聚类（内置正则分词 + 停用词过滤） ==========
+
+    @staticmethod
+    def _extract_ngrams(text, min_n: int = 2, max_n: int = 6) -> list[str]:
+        """内置中文分词：正则提取连续中文串，按 2-6 字窗口切出候选词组。
+
+        长度在 [min_n, max_n] 内的中文串直接作为候选；超长串滑动窗口取 2-6 字
+        子串并去重，避免重复膨胀。脏输入返回空列表。
+        """
+        words: list[str] = []
+        if not text or not isinstance(text, str):
+            return words
+        for chunk in re.findall(r"[\u4e00-\u9fff]+", text):
+            n = len(chunk)
+            if n < min_n:
+                continue
+            if n <= max_n:
+                words.append(chunk)
+                continue
+            seen: set[str] = set()
+            for w in range(min_n, max_n + 1):
+                for i in range(0, n - w + 1):
+                    cand = chunk[i:i + w]
+                    if cand not in seen:
+                        seen.add(cand)
+                        words.append(cand)
+        return words
+
+    @staticmethod
+    def _filter_stopwords(words: list[str]) -> list[str]:
+        """停用词过滤：
+        1. 命中 STOP_WORDS（双字以上停用词）剔除；
+        2. 双字词含任一停用单字剔除（如 去爬/我们/可以）；
+        3. 三字及以上词全部由停用单字组成时剔除（如 为什么）；
+        4. 三字及以上词以停用单字开头或结尾时剔除（如 去爬山/天气好）。
+        """
+        out: list[str] = []
+        for w in words:
+            if not w:
+                continue
+            if w in STOP_WORDS:
+                continue
+            if len(w) == 2:
+                if w[0] in STOP_CHARS or w[1] in STOP_CHARS:
+                    continue
+            elif len(w) >= 3:
+                if all(c in STOP_CHARS for c in w):
+                    continue
+                if w[0] in STOP_CHARS or w[-1] in STOP_CHARS:
+                    continue
+            out.append(w)
+        return out
+
+    def _extract_topics(self, texts: list[str], top: int = 5) -> list[tuple[str, int]]:
+        """按日统计高频词作为话题：分词 + 停用词过滤 + 词频排序，返回 TopN [(词, 次数)]"""
+        counter: dict[str, int] = {}
+        for t in texts:
+            for w in self._filter_stopwords(self._extract_ngrams(t)):
+                counter[w] = counter.get(w, 0) + 1
+        ranked = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
+        return ranked[:top]
+
+    @staticmethod
+    def _topics_from_stat(stat: dict, top: int = 5) -> list[tuple[str, int]]:
+        """从每日统计的 words 词频字典中取话题 TopN；脏数据防御性返回空列表"""
+        words = stat.get("words") if isinstance(stat, dict) else None
+        if not isinstance(words, dict) or not words:
+            return []
+        ranked = sorted(words.items(), key=lambda x: (-x[1], x[0]))
+        return ranked[:top]
+
+    async def _llm_summarize(self, prompt: str) -> str | None:
+        """调用当前 LLM 提供商生成文本；无可用 LLM / 调用失败返回 None（调用方回退规则）"""
+        try:
+            if self.context is None:
+                return None
+            provider = self.context.get_using_provider()
+            if provider is None or not hasattr(provider, "text_chat"):
+                return None
+            resp = await provider.text_chat(prompt)
+            if resp is None:
+                return None
+            text = getattr(resp, "completion_text", None) or ""
+            return text.strip() or None
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"LLM 摘要调用失败，将回退规则抽取: {e}")
+            return None
+
+    def _build_daily_analysis_section(self, date_str: str) -> str:
+        """日报附加分析段落：情绪分布 + 7 天趋势文本图 + 今日话题 Top5；无数据返回空串"""
+        parts: list[str] = []
+        mood = self._build_mood_section(date_str)
+        if mood:
+            parts.append(mood)
+        trend = self._build_mood_trend(7)
+        if trend:
+            parts.append("📈 最近 7 天情绪趋势:")
+            parts.append(trend)
+        topics = self._topics_from_stat(self._daily_stats.get(date_str) or {}, 5)
+        if topics:
+            parts.append(f"🔥 今日话题 Top5（{date_str}）:")
+            for i, (w, c) in enumerate(topics, 1):
+                parts.append(f"  {i}. {w} ({c} 次)")
+            summary = self._topic_summaries.get(date_str)
+            if summary:
+                parts.append(f"📝 话题摘要: {summary}")
+        return "\n".join(parts)
+
+    # ========== 每日统计持久化（独立文件，原子写） ==========
+
+    def _load_daily_stats(self):
+        """从磁盘加载每日统计（校验结构，损坏/非预期格式时重置）"""
+        try:
+            stats_file = os.path.join(self.data_dir, "daily_stats.json")
+            if os.path.exists(stats_file):
+                with open(stats_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    self._daily_stats = data
+                else:
+                    logger.warning("每日统计格式异常，已重置")
+        except Exception as e:
+            logger.warning(f"加载每日统计失败: {e}")
+
+    def _save_daily_stats(self):
+        """保存每日统计到独立文件（原子写；只保留最近 30 天）"""
+        try:
+            cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            self._daily_stats = {k: v for k, v in self._daily_stats.items() if k >= cutoff}
+            stats_file = os.path.join(self.data_dir, "daily_stats.json")
+            os.makedirs(os.path.dirname(stats_file), exist_ok=True)
+            tmp = stats_file + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self._daily_stats, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, stats_file)
+        except Exception as e:
+            logger.warning(f"保存每日统计失败: {e}")
+
+    # ========== 会话自动摘要（间隔切分 + 阈值触发 + 防重复） ==========
+
+    @staticmethod
+    def _split_sessions(messages: list[tuple], gap_seconds: int = SESSION_GAP_SECONDS) -> list[dict]:
+        """把 (timestamp, text) 消息列表按相邻间隔切分为会话列表。
+
+        相邻消息间隔 > gap_seconds 视为新会话；超长间隔自动重置，防止全天候误判。
+        返回 [{"start_ts", "last_ts", "count", "msgs"}, ...]
+        """
+        sessions: list[dict] = []
+        cur: dict | None = None
+        for ts, text in messages:
+            if cur is None or (ts - cur["last_ts"]) > gap_seconds:
+                cur = {"start_ts": ts, "last_ts": ts, "count": 0, "msgs": []}
+                sessions.append(cur)
+            cur["last_ts"] = max(cur["last_ts"], ts)
+            cur["count"] += 1
+            cur["msgs"].append(text)
+        return sessions
+
+    def _track_session(self, umo: str, ts: float, text: str):
+        """会话跟踪：相邻消息间隔 > 10 分钟重置为新会话；消息数 ≥ 阈值触发自动摘要（防重复）"""
+        sess = self._active_sessions.get(umo)
+        if sess is None or (ts - sess["last_ts"]) > SESSION_GAP_SECONDS:
+            sess = {"start_ts": ts, "last_ts": ts, "count": 0, "summarized": False, "msgs": []}
+            self._active_sessions[umo] = sess
+        else:
+            sess["last_ts"] = max(sess["last_ts"], ts)
+        sess["count"] += 1
+        if len(sess["msgs"]) < SESSION_MAX_MSGS:
+            sess["msgs"].append((text or "")[:200])
+        # 达到阈值且未总结 → 触发自动摘要（先标记防重复；无事件循环时跳过推送）
+        if sess["count"] >= SESSION_SUMMARY_THRESHOLD and not sess["summarized"]:
+            sess["summarized"] = True
+            try:
+                asyncio.get_running_loop()
+                asyncio.create_task(self._auto_summarize_session(umo, dict(sess)))
+            except RuntimeError:
+                pass  # 无运行事件循环（如离线统计/测试环境），跳过异步推送
+
+    def _build_rule_summary(self, msgs: list[str], max_msg: int = 8, head_len: int = 30, top_words: int = 5) -> str:
+        """无 LLM 时的规则抽取摘要：每条消息取前 30 字 + 高频话题词"""
+        lines = []
+        for m in msgs[:max_msg]:
+            m = (m or "").strip().replace("\n", " ")
+            if not m:
+                continue
+            head = m[:head_len]
+            if len(m) > head_len:
+                head += "…"
+            lines.append(f"· {head}")
+        if not lines:
+            return "（无可摘要消息）"
+        topics = self._extract_topics(msgs, top_words)
+        words_part = "、".join(f"{w}({c})" for w, c in topics) if topics else "无"
+        return "消息要点:\n" + "\n".join(lines) + f"\n高频词: {words_part}"
+
+    async def _summarize_session(self, msgs: list[str]) -> str:
+        """会话摘要：有 LLM 用 LLM 总结，无 LLM 用规则抽取（前 30 字 + 高频词）"""
+        prompt = (
+            "请对以下群聊消息做一段简洁的中文摘要（100 字以内），"
+            "概括讨论的主题与结论：\n"
+            + "\n".join(f"- {m}" for m in msgs[-50:])
+        )
+        text = await self._llm_summarize(prompt)
+        if text:
+            return text
+        return self._build_rule_summary(msgs)
+
+    async def _auto_summarize_session(self, umo: str, sess: dict):
+        """生成自动摘要并推送到该群，标注「自动摘要」"""
+        try:
+            if self.context is None:
+                return
+            summary = await self._summarize_session(sess.get("msgs") or [])
+            if not summary:
+                return
+            start = datetime.fromtimestamp(sess.get("start_ts") or time.time()).strftime("%H:%M")
+            count = sess.get("count", 0)
+            text = (
+                f"📝 自动摘要（本群最近一场活跃会话 {count} 条消息，自 {start} 起）\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n{summary}"
+            )
+            await self.context.send_message(umo, MessageChain([Plain(text)]))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"自动摘要推送失败: {e}")
+
+    # ========== 群消息实时收集（情绪/话题统计 + 会话跟踪，不拦截消息） ==========
+
+    def _extract_event_text(self, event) -> str:
+        """从消息事件提取纯文本（防御：脏消息/非文本不崩溃），优先消息链，回退 message_str"""
+        try:
+            obj = getattr(event, "message_obj", None)
+            if obj is not None:
+                msg = getattr(obj, "message", None)
+                if isinstance(msg, list):
+                    parts = []
+                    for comp in msg:
+                        if isinstance(comp, Plain):
+                            t = getattr(comp, "text", "")
+                            if isinstance(t, str) and t:
+                                parts.append(t)
+                    if parts:
+                        return " ".join(parts).strip()
+            s = getattr(event, "message_str", "") or ""
+            return s.strip() if isinstance(s, str) else ""
+        except Exception:
+            return ""
+
+    def _record_chat_message(self, event):
+        """收集群消息：更新每日情绪/话题统计并跟踪会话活跃度（防御性，失败不影响主流程）"""
+        try:
+            text = self._extract_event_text(event)
+            if not text or text.startswith("/"):
+                return  # 空消息与命令消息不参与统计
+            ts = time.time()
+            try:
+                obj = getattr(event, "message_obj", None)
+                if obj is not None and getattr(obj, "timestamp", 0):
+                    ts = float(obj.timestamp)
+            except Exception:
+                pass
+            umo = str(event.unified_msg_origin) if getattr(event, "unified_msg_origin", None) else ""
+            date = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+            # 每日统计（情绪分布 + 话题词频）
+            stat = self._daily_stats.setdefault(
+                date, {"msg_count": 0, "pos": 0, "neu": 0, "neg": 0, "words": {}}
+            )
+            stat["msg_count"] = int(stat.get("msg_count") or 0) + 1
+            cls = self._classify_sentiment(self._score_sentiment(text))
+            key = {"积极": "pos", "中性": "neu", "消极": "neg"}[cls]
+            stat[key] = int(stat.get(key) or 0) + 1
+            words = stat.setdefault("words", {})
+            for w in self._filter_stopwords(self._extract_ngrams(text)):
+                words[w] = int(words.get(w) or 0) + 1
+            # 周期落盘（每 20 条消息一次，降低写盘频率）
+            self._stats_save_counter += 1
+            if self._stats_save_counter >= 20:
+                self._stats_save_counter = 0
+                self._save_daily_stats()
+            # 会话活跃度跟踪（仅限群内）
+            if umo:
+                self._track_session(umo, ts, text)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"消息统计失败: {e}")
+
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def _on_group_message_collect(self, event: AstrMessageEvent) -> None:
+        """群消息收集钩子：实时统计情绪/话题并跟踪会话（返回 None，不拦截消息）"""
+        self._record_chat_message(event)
+
     # ========== 指令处理 ==========
 
     @filter.command("context", priority=200)
@@ -528,6 +952,124 @@ class ContextAnalyzerPlugin(Star):
         except Exception as e:
             logger.error(f"分析上下文失败: {e}")
             return self._send_text(event, f"❌ 分析上下文时出错: {str(e)}")
+
+    @staticmethod
+    def _parse_date_arg(event, default: str | None = None) -> str:
+        """从命令消息解析可选日期参数 YYYY-MM-DD；非法/缺省回退默认日期（今天）"""
+        default = default or datetime.now().strftime("%Y-%m-%d")
+        m = re.search(r"\d{4}-\d{2}-\d{2}", getattr(event, "message_str", "") or "")
+        if m:
+            try:
+                datetime.strptime(m.group(0), "%Y-%m-%d")
+                return m.group(0)
+            except ValueError:
+                pass
+        return default
+
+    @filter.command("analyze_mood", priority=200)
+    async def analyze_mood(self, event: AstrMessageEvent) -> MessageEventResult | None:
+        """情绪趋势分析：查看指定日期情绪分布与最近 7 天趋势（管理员）
+
+        用法: /analyze_mood [YYYY-MM-DD]（缺省为今天）
+        """
+        if not self._is_admin(event):
+            return self._send_text(event, self._deny())
+        try:
+            date_str = self._parse_date_arg(event)
+            stat = self._daily_stats.get(date_str) or {}
+            if not stat.get("msg_count"):
+                return self._send_text(event, f"😊 {date_str} 没有可用的消息情绪统计")
+            pos = int(stat.get("pos") or 0)
+            neu = int(stat.get("neu") or 0)
+            neg = int(stat.get("neg") or 0)
+            denom = max(pos + neu + neg, 1)
+            lines = [
+                f"😊 情绪趋势分析（{date_str}）",
+                "━━━━━━━━━━━━━━━━━━━━━━",
+                f"💬 统计消息: {stat['msg_count']} 条",
+                f"📊 情绪分布: 积极 {pos / denom * 100:.1f}% · 中性 {neu / denom * 100:.1f}% · "
+                f"消极 {neg / denom * 100:.1f}%",
+                "",
+                "📈 最近 7 天情绪趋势:",
+                self._build_mood_trend(7),
+            ]
+            return self._send_text(event, "\n".join(lines))
+        except Exception as e:
+            logger.error(f"情绪分析失败: {e}")
+            return self._send_text(event, f"❌ 情绪分析失败: {str(e)}")
+
+    @filter.command("analyze_topics", priority=200)
+    async def analyze_topics(self, event: AstrMessageEvent) -> MessageEventResult | None:
+        """话题聚类：查看指定日期话题 Top5 与一句话摘要（管理员）
+
+        用法: /analyze_topics [YYYY-MM-DD]（缺省为今天）；有 LLM 时自动生成一句话摘要
+        """
+        if not self._is_admin(event):
+            return self._send_text(event, self._deny())
+        try:
+            date_str = self._parse_date_arg(event)
+            stat = self._daily_stats.get(date_str) or {}
+            topics = self._topics_from_stat(stat, 5)
+            if not topics:
+                return self._send_text(event, f"🔥 {date_str} 没有可用的消息话题统计")
+            lines = [
+                f"🔥 话题聚类分析（{date_str}）",
+                "━━━━━━━━━━━━━━━━━━━━━━",
+                f"💬 基于 {stat.get('msg_count', 0)} 条消息",
+                "📌 今日话题 Top5:",
+            ]
+            for i, (w, c) in enumerate(topics, 1):
+                lines.append(f"  {i}. {w} ({c} 次)")
+            # 有 LLM 接口时生成话题一句话摘要；无 LLM 时直接用词频直出
+            words = "、".join(w for w, _ in topics)
+            summary = await self._llm_summarize(f"请用一句不超过 30 字的话概括这些群聊话题: {words}")
+            if summary:
+                self._topic_summaries[date_str] = summary
+                lines.append(f"📝 一句话摘要: {summary}")
+            return self._send_text(event, "\n".join(lines))
+        except Exception as e:
+            logger.error(f"话题分析失败: {e}")
+            return self._send_text(event, f"❌ 话题分析失败: {str(e)}")
+
+    @filter.command("analyze_session", priority=200)
+    async def analyze_session(self, event: AstrMessageEvent) -> MessageEventResult | None:
+        """会话自动摘要：查看当前群活跃会话状态或手动触发摘要（管理员）
+
+        用法: /analyze_session         查看会话活跃度
+              /analyze_session summary 对当前群当前会话立即生成摘要
+        """
+        if not self._is_admin(event):
+            return self._send_text(event, self._deny())
+        try:
+            umo = str(event.unified_msg_origin) if getattr(event, "unified_msg_origin", None) else ""
+            sess = self._active_sessions.get(umo)
+            words = (event.message_str or "").split()
+            if "summary" in words:
+                if not sess or sess["count"] < 2:
+                    return self._send_text(event, "💬 当前群暂无活跃会话可摘要")
+                summary = await self._summarize_session(sess["msgs"])
+                return self._send_text(
+                    event, f"📝 会话摘要（{sess['count']} 条消息）\n{summary}"
+                )
+            if not sess:
+                return self._send_text(event, "💬 当前群暂未跟踪到活跃会话")
+            start = datetime.fromtimestamp(sess["start_ts"]).strftime("%Y-%m-%d %H:%M")
+            dur = max(0.0, (sess["last_ts"] - sess["start_ts"]) / 60)
+            status = "✅ 已自动摘要" if sess["summarized"] else "⏳ 未触发摘要"
+            lines = [
+                "💬 会话活跃度分析",
+                "━━━━━━━━━━━━━━━━━━━━━━",
+                f"📅 会话开始: {start}",
+                f"🔢 消息数: {sess['count']} 条",
+                f"⏱️ 持续时长: {dur:.0f} 分钟",
+                f"📌 状态: {status}",
+                f"🎯 摘要触发阈值: {SESSION_SUMMARY_THRESHOLD} 条",
+                f"⏲️ 会话切分间隔: {SESSION_GAP_SECONDS // 60} 分钟",
+            ]
+            return self._send_text(event, "\n".join(lines))
+        except Exception as e:
+            logger.error(f"会话分析失败: {e}")
+            return self._send_text(event, f"❌ 会话分析失败: {str(e)}")
 
     @filter.command("status", priority=200)
     async def analyze_status(self, event: AstrMessageEvent) -> MessageEventResult | None:
@@ -1000,5 +1542,9 @@ class ContextAnalyzerPlugin(Star):
             self._report_task = None
         try:
             self._save_events()
+        except Exception:
+            pass
+        try:
+            self._save_daily_stats()
         except Exception:
             pass
