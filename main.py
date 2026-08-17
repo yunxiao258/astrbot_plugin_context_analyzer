@@ -225,8 +225,11 @@ class ContextAnalyzerPlugin(Star):
         try:
             history_mgr = self.context.message_history_manager
             if history_mgr:
-                platform_id = event.session.platform_id if event.session else None
-                user_id = event.session.session_id if event.session else None
+                # 存储端以 unified_msg_origin（完整 UMO）为 user_id 键
+                platform_id = event.get_platform_id()
+                user_id = event.unified_msg_origin or (
+                    event.session.session_id if event.session else None
+                )
                 records = await history_mgr.get(
                     platform_id, user_id, page=1, page_size=100
                 )
@@ -398,6 +401,14 @@ class ContextAnalyzerPlugin(Star):
     @filter.on_astrbot_loaded()
     async def _start_report_loop(self):
         """AstrBot 加载完成后启动日报/周报定时任务"""
+        self._start_report_loop_sync()
+
+    def initialize(self):
+        """插件热重载后幂等启动日报/周报定时任务（on_astrbot_loaded 热重载不触发）"""
+        self._start_report_loop_sync()
+
+    def _start_report_loop_sync(self):
+        """幂等启动日报/周报循环；未启用或已在运行则跳过"""
         if not self.config.get("report_enabled", False):
             return
         if self._report_running:
@@ -977,8 +988,10 @@ class ContextAnalyzerPlugin(Star):
 
     async def terminate(self):
         """插件卸载时清理"""
+        self._report_running = False
         if self._report_task:
             self._report_task.cancel()
+            self._report_task = None
         try:
             self._save_events()
         except Exception:
