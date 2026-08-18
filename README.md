@@ -1,13 +1,17 @@
 # AstrBot 上下文分析插件
 
-AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监控、插件生命周期管理。
+AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监控、插件生命周期管理。v1.3.0 起新增情绪趋势分析、话题聚类与会话自动摘要，自动对群聊消息进行实时统计与摘要推送。
+
+- 作者：Administrator
+- 版本：1.3.0
+- 许可证：MIT（详见 LICENSE）
 
 ## 功能
 
-### 上下文分析 (`/context`)
+### 上下文分析（`/context`）
 - 分析当前会话的消息历史，报告会标注**数据来源**（会话上下文 / 平台消息历史）
 - 数据获取优先级：先读取 LLM 会话上下文（`conversation`），为空时自动回退到平台消息历史（`platform_message_history`）
-- 统计消息数量、预估 Token 数
+- 统计消息数量、预估 Token 数（中文按 1 token/字、英文按 0.75 token/词粗略估算）
 - 角色分布（用户 / 助手 / 系统 / 其他，`tool` 等角色计入"其他"）
 - 最近 5 条消息预览
 - 子命令（仅管理员）：
@@ -15,29 +19,135 @@ AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监�
   - `/context daily`（别名 `/context 日报`）：手动生成并发送插件事件日报
   - `/context weekly`（别名 `/context 周报`）：手动生成并发送插件事件周报
 
-### 系统状态 (`/status`)
-- CPU、内存、磁盘使用率
-- 网络连接数
-- 插件激活状态
-- LLM 提供商配置
-- 进程信息（PID、内存占用、运行时间）
+### 情绪趋势分析（`/analyze_mood`，v1.3.0）
+- 用法：`/analyze_mood [YYYY-MM-DD]`（缺省为今天，非法日期自动回退今天）
+- 展示指定日期的情绪分布（积极 / 中性 / 消极 百分比 + 统计消息数）
+- 展示最近 7 天情绪趋势文本图（块字符条形图，每天一行，无数据日显示"无数据"）
+- 情绪判定基于**内置中文情绪词典**：积极词与消极词各 80+（含网络用语如 yyds、好耶、绝了、破防、emo 等），按词频匹配归一化打分（积极 +1 / 消极 -1），阈值 ±0.05 划分三档
 - **仅管理员可用**
 
-### 插件管理 (`/plugins`)
-- 插件列表（激活/未激活）
-- 插件版本信息
-- 插件变更检测（新增/更新/删除），变更会自动写入事件日志
+### 话题聚类（`/analyze_topics`，v1.3.0）
+- 用法：`/analyze_topics [YYYY-MM-DD]`（缺省为今天，非法日期自动回退今天）
+- 展示指定日期消息话题 Top5（词 + 出现次数）
+- 分词使用**内置中文分词**：提取 2-6 字连续中文词组，配合内置停用词表（双字以上精确停用 + 单字停用字过滤）滤除「我们」「今天」「可以」等无意义词
+- 已配置 LLM 提供商时，自动生成一句话话题摘要（30 字以内）并缓存
+- **仅管理员可用**
+
+### 会话自动摘要（`/analyze_session`，v1.3.0）
+- 群消息实时跟踪：相邻消息间隔超过 10 分钟视为新会话
+- 单场会话消息数 ≥ 50 条自动触发摘要，推送「📝 自动摘要」到该群（每场会话只摘要一次）
+- 摘要生成：已配置 LLM 时由 LLM 总结（100 字以内）；无 LLM 时回退规则抽取（每条消息前 30 字要点 + 高频话题词）
+- 内存中每个会话最多保留 100 条消息（超出丢弃最早）
+- 命令（仅管理员）：
+  - `/analyze_session`：查看当前群活跃会话状态（开始时间、消息数、持续时长、是否已自动摘要、摘要阈值与切分间隔）
+  - `/analyze_session summary`：对当前群当前会话立即生成摘要（至少 2 条消息）
+- 群消息收集钩子不拦截消息，不统计空消息与 `/` 开头的命令消息
+
+### 自动日报 / 周报
+- 后台定时任务（`report_enabled` 开启后生效）：
+  - 日报：每天 `report_time`（默认 08:00）发送**昨日**插件事件日报
+  - 周报：每周一随日报一并发送最近 7 天插件事件周报
+- 推送目标为 `report_umo` 配置的会话（可多个）
+- 日报在事件统计基础上附加分析段落（v1.3.0）：昨日情绪分布 + 最近 7 天情绪趋势 + 今日话题 Top5（含话题摘要）
+- 手动触发：`/context daily` / `/context weekly`（管理员）
+
+### 系统状态（`/status`）
+- CPU、内存、磁盘使用率
+- 网络连接数（无权限时显示 N/A）
+- 插件激活状态、LLM 提供商配置
+- 进程信息（PID、内存占用、运行时间）
+- 可选生成状态图表（需要 Pillow）
+- **仅管理员可用**
+
+### 插件管理（`/plugins`）
+- 插件列表（激活/未激活）与版本信息
+- 插件变更检测（新增/更新/删除），变更自动写入事件日志
 - 最近事件预览
+- **仅管理员可用**
 
-### 查看日志 (`/log`)
-- 显示插件事件日志（加载/卸载/新增/更新/删除/错误）
-- 支持按插件名过滤
+### 查看日志（`/log`）
+- 用法：`/log`（全部）或 `/log <插件名>`（按插件名过滤）
+- 显示插件事件日志（加载/卸载/新增/更新/删除/错误），最近 20 条，超出显示剩余条数
 - 日志通过插件生命周期事件自动记录，无需手动操作
+- **仅管理员可用**
 
-### 重置缓存 (`/reset`)
-- 清空插件状态快照
-- 清空事件日志
-- 重置会话缓存
+### 重置缓存（`/reset`）
+- 用法：`/reset`（清空全部）或 `/reset <插件名>`（重置指定插件）
+- 清空插件状态快照、事件日志与会话缓存
+- **仅管理员可用**
+
+### 图表生成
+- `/context`、`/status`、`/plugins` 报告会附带生成 PNG 图表（`enable_charts` 开启且已安装 Pillow 时）
+- 图表自动加载系统中文字体（msyh / simhei / simsun / Deng 等，找不到时回退默认字体）
+
+## 指令说明
+
+| 指令 | 说明 | 权限 |
+|------|------|------|
+| `/context` | 分析当前会话上下文 | 所有人 |
+| `/context export` | 导出会话历史为文件（`export [json\|csv] [条数]` 可选筛选） | 管理员 |
+| `/context daily` | 手动生成事件日报（含情绪/话题分析） | 管理员 |
+| `/context weekly` | 手动生成事件周报 | 管理员 |
+| `/analyze_mood [日期]` | 指定日期情绪分布 + 最近 7 天情绪趋势 | 管理员 |
+| `/analyze_topics [日期]` | 指定日期话题 Top5 + 一句话摘要 | 管理员 |
+| `/analyze_session` | 查看当前群活跃会话状态 | 管理员 |
+| `/analyze_session summary` | 对当前会话立即生成摘要 | 管理员 |
+| `/status` | 查看系统状态 | 管理员 |
+| `/plugins` | 查看插件列表与变更 | 管理员 |
+| `/log [插件名]` | 查看事件日志（可按插件名过滤） | 管理员 |
+| `/reset [插件名]` | 重置缓存（可指定插件名） | 管理员 |
+
+## 配置
+
+见 `_conf_schema.json`。关键项：
+
+| 配置项 | 说明 | 默认 |
+|--------|------|------|
+| `enable_charts` | 是否启用图表生成（需要 Pillow） | true |
+| `max_events` | 最大事件日志数量（内存与磁盘同步截断） | 500 |
+| `enable_system_status` | 是否启用系统状态监控（需要 psutil） | true |
+| `admin_umos` | 管理员会话 UMO 白名单（/status、/plugins、/log、/reset、/context export\|daily\|weekly、/analyze_* 仅限此列表），多个用英文逗号分隔；留空则上述命令全部不可用 | 空 |
+| `report_enabled` | 是否启用每日/每周自动报表 | false |
+| `report_umo` | 日报/周报推送目标会话 UMO，多个用英文逗号分隔 | 空 |
+| `report_time` | 每日日报触发时间（24 小时制 HH:MM，非法值回退 08:00）；周报在每周一该时刻随日报一并发送 | 08:00 |
+
+## 数据
+
+存储于 `plugin_data/astrbot_plugin_context_analyzer/`：
+
+- `plugin_events.json`：插件事件日志（最近 `max_events` 条）
+- `plugin_snapshots.json`：插件状态快照（用于跨重启的变更检测）
+- `daily_stats.json`：每日消息统计（消息数、情绪分布、话题词频，按日期键存储，仅保留最近 30 天）
+- `exports/`：`/context export` 导出的聊天记录文件（`context_export_<时间戳>.json` / `.csv`）
+- `context_chart.png`：上下文分析图表（缓存）
+- `status_chart.png`：系统状态图表（缓存）
+- `plugins_chart.png`：插件状态图表（缓存）
+
+数据以 JSON 原子写持久化，重启后不丢失。
+
+## 使用示例
+
+```
+/context              # 分析当前会话上下文
+/context export       # 导出会话历史文件（管理员）
+/context export csv 50   # 导出最近 50 条为 CSV（管理员）
+/context daily        # 手动生成事件日报（管理员）
+/context weekly       # 手动生成事件周报（管理员）
+
+/analyze_mood                 # 今日情绪分布 + 最近 7 天趋势（管理员）
+/analyze_mood 2026-08-17      # 指定日期情绪分析（管理员）
+/analyze_topics               # 今日话题 Top5（管理员）
+/analyze_topics 2026-08-17    # 指定日期话题分析（管理员）
+/analyze_session              # 查看当前群活跃会话状态（管理员）
+/analyze_session summary      # 立即生成当前会话摘要（管理员）
+
+/status           # 查看系统状态（管理员）
+/plugins          # 查看插件列表和状态（管理员）
+/reset            # 重置所有缓存（管理员）
+/reset plugin名   # 重置指定插件（管理员）
+/log              # 查看所有事件日志（管理员）
+/log plugin名     # 查看指定插件事件日志（管理员）
+```
 
 ## 依赖
 
@@ -49,57 +159,36 @@ AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监�
 - `psutil`：系统状态监控
 
 安装可选依赖：
+
 ```bash
 pip install Pillow psutil
 ```
 
-## 配置
+## 测试
 
-见 `_conf_schema.json`。关键项：
+单元测试（无需 AstrBot 环境即可运行）：
 
-- `enable_charts`：是否启用图表生成（需要 Pillow，默认 `true`）
-- `max_events`：最大事件日志数量（默认 `500`，内存与磁盘同步截断）
-- `enable_system_status`：是否启用系统状态监控（需要 psutil，默认 `true`）
+- `test_context_analyzer.py`：导出、日报/周报、事件聚合、命令处理器权限与行为
+- `test_new_features.py`：情绪词典与打分、话题分词与停用词、会话切分与摘要触发、规则摘要、7 天趋势图、每日统计持久化、群消息实时收集、新命令权限与输出
 
-## 数据
+运行方式：
 
-存储于 `plugin_data/astrbot_plugin_context_analyzer/`：
-
-- `plugin_events.json`：插件事件日志（最近 `max_events` 条）
-- `plugin_snapshots.json`：插件状态快照（用于跨重启的变更检测）
-- `context_chart.png`：上下文分析图表（缓存）
-- `status_chart.png`：系统状态图表（缓存）
-- `plugins_chart.png`：插件状态图表（缓存）
-
-## 使用示例
-
+```bash
+python -m unittest test_context_analyzer test_new_features
+# 或分别运行
+python test_context_analyzer.py
+python test_new_features.py
 ```
-/context          # 分析当前会话上下文
-/context export   # 导出会话历史文件（管理员）
-/context daily    # 手动生成事件日报（管理员）
-/context weekly   # 手动生成事件周报（管理员）
-/status           # 查看系统状态（管理员）
-/plugins          # 查看插件列表和状态
-/reset            # 重置所有缓存
-/reset plugin名   # 重置指定插件
-/log              # 查看所有事件日志
-/log plugin名     # 查看指定插件事件日志
-```
-
-## 指令说明
-
-| 指令 | 说明 | 权限 |
-|------|------|------|
-| `/context` | 分析当前会话上下文 | 所有人 |
-| `/context export` | 导出会话历史为文件（`export [json\|csv] [条数]` 可选筛选） | 管理员 |
-| `/context daily` | 手动生成事件日报 | 管理员 |
-| `/context weekly` | 手动生成事件周报 | 管理员 |
-| `/status` | 查看系统状态 | 管理员 |
-| `/plugins` | 查看插件列表 | 所有人 |
-| `/reset` | 重置缓存（可指定插件名） | 所有人 |
-| `/log` | 查看事件日志（可指定插件名） | 所有人 |
 
 ## 更新记录
+
+### v1.3.0
+- 新增 `/analyze_mood`：情绪趋势分析（内置中文情绪词典，积极/消极词各 80+，指定日期情绪分布 + 最近 7 天趋势文本图）
+- 新增 `/analyze_topics`：话题聚类（内置中文分词 + 停用词过滤，当日话题 Top5，有 LLM 时生成一句话摘要）
+- 新增 `/analyze_session`：会话自动摘要（相邻消息间隔超 10 分钟切分新会话，单场消息数 ≥ 50 自动触发摘要推送；无 LLM 时回退规则抽取；支持 `summary` 手动触发）
+- 群消息实时收集：情绪/话题统计写入独立文件 `daily_stats.json`（原子写，保留最近 30 天，每 20 条消息落盘一次）
+- 日报扩展：附加昨日情绪分布、最近 7 天情绪趋势与今日话题 Top5 分析段落（不影响原有事件日报内容）
+- 新增 `test_new_features.py` 新功能回归测试
 
 ### v1.2.1
 - 修复日报/周报自动报告：触发判断改为"到达设定时间即触发"，不再依赖精确到分钟的匹配，周报随日报在报告时间点触发
@@ -111,7 +200,7 @@ pip install Pillow psutil
 ### v1.2.0
 - 新增 `/context export`：导出当前会话历史为 json/csv 文件
 - 新增 `/context daily` / `/context weekly`：手动生成并发送插件事件日报/周报
-- 后台自动日报/周报推送（`daily_report_time` / `weekly_report_weekday` 配置）
+- 后台自动日报/周报推送（`report_umo` / `report_time` 配置）
 
 ### v1.1.2
 - 重构三份图表生成的公共骨架（`_new_chart`），减少重复代码
