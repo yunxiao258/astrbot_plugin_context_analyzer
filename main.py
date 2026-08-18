@@ -1076,6 +1076,10 @@ class ContextAnalyzerPlugin(Star):
         """分析系统状态（管理员）"""
         if not self._is_admin(event):
             return self._send_text(event, self._deny())
+        if not self.config.get("enable_system_status", True):
+            return self._send_text(
+                event, "❌ 系统状态监控已在配置中关闭（enable_system_status=false）"
+            )
         try:
             import psutil
 

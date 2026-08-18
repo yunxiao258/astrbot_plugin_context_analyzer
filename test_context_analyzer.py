@@ -258,6 +258,14 @@ class TestCommands(unittest.TestCase):
         result = asyncio.run(p.analyze_status(ev))
         self.assertIn("没有执行此命令的权限", result[0].text)
 
+    def test_status_disabled_by_config(self):
+        import asyncio
+        p = self._plugin()
+        p.config["enable_system_status"] = False
+        ev = FakeEvent("/status", umo="default:GroupMessage:123")
+        result = asyncio.run(p.analyze_status(ev))
+        self.assertIn("enable_system_status=false", result[0].text)
+
     def test_reset_all_clears(self):
         import asyncio
         p = self._plugin()
