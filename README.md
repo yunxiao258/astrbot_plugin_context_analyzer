@@ -3,7 +3,7 @@
 AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监控、插件生命周期管理。v1.3.0 起新增情绪趋势分析、话题聚类与会话自动摘要，自动对群聊消息进行实时统计与摘要推送。
 
 - 作者：云晓
-- 版本：1.3.0
+- 版本：1.3.1
 - 许可证：MIT（详见 LICENSE）
 
 ## 功能
@@ -181,6 +181,10 @@ python test_new_features.py
 ```
 
 ## 更新记录
+
+### v1.3.1
+- 修复 `initialize()` 为同步函数导致 AstrBot v4.27+ `await` 加载失败的问题，改为标准 `async def initialize()` 并移除冗余 `on_astrbot_loaded` 钩子
+- 统一作者元数据、清理测试硬编码路径与 UTF-8 BOM，接入 GitHub Actions CI
 
 ### v1.3.0
 - 新增 `/analyze_mood`：情绪趋势分析（内置中文情绪词典，积极/消极词各 80+，指定日期情绪分布 + 最近 7 天趋势文本图）

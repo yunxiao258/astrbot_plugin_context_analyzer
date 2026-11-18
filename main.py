@@ -1,4 +1,4 @@
-﻿"""AstrBot 上下文分析插件：LLM 会话分析、系统状态监控、插件生命周期管理"""
+"""AstrBot 上下文分析插件：LLM 会话分析、系统状态监控、插件生命周期管理"""
 
 import asyncio
 import csv
@@ -17,9 +17,9 @@ from astrbot.core.star.star import StarMetadata
 
 # 插件元数据
 PLUGIN_NAME = "astrbot_plugin_context_analyzer"
-PLUGIN_AUTHOR = "Administrator"
+PLUGIN_AUTHOR = "云晓"
 PLUGIN_DESC = "LLM 上下文分析、系统状态监控、插件生命周期管理"
-PLUGIN_VERSION = "1.3.0"
+PLUGIN_VERSION = "1.3.1"
 
 # ========== 内置中文情绪词典（积极 ≥80 词） ==========
 POSITIVE_WORDS: tuple[str, ...] = (
@@ -475,20 +475,19 @@ class ContextAnalyzerPlugin(Star):
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"发送日报到 {umo} 失败: {e}")
 
-    @filter.on_astrbot_loaded()
-    async def _start_report_loop(self):
-        """AstrBot 加载完成后启动日报/周报定时任务"""
-        self._start_report_loop_sync()
-
-    def initialize(self):
-        """插件热重载后幂等启动日报/周报定时任务（on_astrbot_loaded 热重载不触发）"""
+    async def initialize(self):
+        """插件加载或热重载后幂等启动日报/周报定时任务"""
         self._start_report_loop_sync()
 
     def _start_report_loop_sync(self):
-        """幂等启动日报/周报循环；未启用或已在运行则跳过"""
+        """幂等启动日报/周报循环；未启用、已在运行或无运行中事件循环时跳过"""
         if not self.config.get("report_enabled", False):
             return
         if self._report_running:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
             return
         self._report_running = True
         self._report_task = asyncio.create_task(self._report_loop())

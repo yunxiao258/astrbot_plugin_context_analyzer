@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 
-sys.path.insert(0, r"D:\astrbot\data\plugins")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from astrbot_plugin_context_analyzer.main import ContextAnalyzerPlugin  # noqa: E402
 

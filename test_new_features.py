@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import sys
 import os
 
-sys.path.insert(0, r"D:\astrbot\data\plugins")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from astrbot_plugin_context_analyzer.main import (  # noqa: E402
     ContextAnalyzerPlugin,
@@ -453,6 +453,20 @@ class TestNewCommands(unittest.TestCase):
         # 管理员白名单会话内但尚未跟踪到活跃会话
         result = asyncio.run(p.analyze_session(FakeEvent("/analyze_session")))
         self.assertIn("暂未跟踪到活跃会话", result[0].text)
+
+    def test_async_initialize_and_terminate(self):
+        self.assertTrue(asyncio.iscoroutinefunction(ContextAnalyzerPlugin.initialize))
+        self.assertTrue(asyncio.iscoroutinefunction(ContextAnalyzerPlugin.terminate))
+        p = ContextAnalyzerPlugin(None, {"report_enabled": True})
+
+        async def scenario():
+            await p.initialize()
+            self.assertTrue(p._report_running)
+            self.assertIsNotNone(p._report_task)
+            await p.terminate()
+            self.assertFalse(p._report_running)
+
+        asyncio.run(scenario())
 
 
 if __name__ == "__main__":
