@@ -19,7 +19,7 @@ from astrbot.core.star.star import StarMetadata
 PLUGIN_NAME = "astrbot_plugin_context_analyzer"
 PLUGIN_AUTHOR = "云晓"
 PLUGIN_DESC = "LLM 上下文分析、系统状态监控、插件生命周期管理"
-PLUGIN_VERSION = "1.3.1"
+PLUGIN_VERSION = "1.4.0"
 
 # ========== 内置中文情绪词典（积极 ≥80 词） ==========
 POSITIVE_WORDS: tuple[str, ...] = (
@@ -875,9 +875,20 @@ class ContextAnalyzerPlugin(Star):
 
     @filter.command("context", priority=200)
     async def analyze_context(self, event: AstrMessageEvent) -> MessageEventResult | None:
-        """分析当前会话上下文；子命令：export / daily / weekly"""
-        # 子命令分发：/context export|daily|weekly
+        """分析当前会话上下文；子命令：export / daily / weekly / status / plugins / reset / log"""
+        # 子命令分发：/context status|plugins|reset|log（管理类，v1.4.0 起统一收拢到 /context 下）
         text = event.message_str.strip()
+        sm = re.match(r"^[\\/／]?\s*context\s+(status|plugins|reset|log)\b", text, re.IGNORECASE)
+        if sm:
+            admin_sub = sm.group(1).lower()
+            if admin_sub == "status":
+                return await self.analyze_status(event)
+            if admin_sub == "plugins":
+                return await self.analyze_plugins(event)
+            if admin_sub == "reset":
+                return await self.reset_plugin(event)
+            return await self.show_log(event)
+        # 子命令分发：/context export|daily|weekly
         m = re.search(r"\b(export|daily|日报|weekly|周报)\b", text)
         sub = m.group(1) if m else ""
         if sub == "export":
@@ -1270,17 +1281,20 @@ class ContextAnalyzerPlugin(Star):
             logger.error(f"分析插件状态失败: {e}")
             return self._send_text(event, f"❌ 分析插件状态时出错: {str(e)}")
 
-    @filter.command("reset", priority=200)
     async def reset_plugin(self, event: AstrMessageEvent) -> MessageEventResult | None:
-        """重置插件（清空缓存和事件日志，管理员）"""
+        """重置插件（清空缓存和事件日志，管理员）。
+
+        v1.4.0 起仅通过 /context reset [plugin_name] 调用：
+        不再注册顶层 /reset，避免劫持 AstrBot 内置 /reset（重置 LLM 对话）。
+        """
         if not self._is_admin(event):
             return self._send_text(event, self._deny())
         try:
             text = event.message_str.strip()
             import re
-            m = re.match(r"^reset(?:\s+(\S+))?$", text)
+            m = re.match(r"^[\\/／]?\s*(?:context\s+)?reset(?:\s+(\S+))?$", text, re.IGNORECASE)
             if not m:
-                return self._send_text(event, "❌ 用法: /reset [plugin_name]")
+                return self._send_text(event, "❌ 用法: /context reset [plugin_name]")
 
             plugin_name = m.group(1)
 
@@ -1306,15 +1320,15 @@ class ContextAnalyzerPlugin(Star):
 
     @filter.command("log", priority=200)
     async def show_log(self, event: AstrMessageEvent) -> MessageEventResult | None:
-        """显示插件事件日志（管理员）"""
+        """显示插件事件日志（管理员）；/context log [plugin_name]，兼容旧指令 /log"""
         if not self._is_admin(event):
             return self._send_text(event, self._deny())
         try:
             text = event.message_str.strip()
             import re
-            m = re.match(r"^log(?:\s+(\S+))?$", text)
+            m = re.match(r"^[\\/／]?\s*(?:context\s+)?log(?:\s+(\S+))?$", text, re.IGNORECASE)
             if not m:
-                return self._send_text(event, "❌ 用法: /log [plugin_name]")
+                return self._send_text(event, "❌ 用法: /context log [plugin_name]")
 
             plugin_name = m.group(1)
 

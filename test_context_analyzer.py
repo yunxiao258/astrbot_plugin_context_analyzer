@@ -333,6 +333,61 @@ class TestCommands(unittest.TestCase):
         result2 = asyncio.run(p.analyze_plugins(FakeEvent("/plugins")))
         self.assertNotIn("🆕 新增", result2[0].text)
 
+    # ===== v1.4.0：管理指令收拢到 /context 子指令，不再劫持内置 /reset =====
+
+    def test_v140_context_reset_dispatch(self):
+        import asyncio
+        p = self._plugin()
+        p._plugin_events = [
+            {"time": "t", "type": "loaded", "plugin": "p1", "details": {}},
+            {"time": "t", "type": "error", "plugin": "p2", "details": {}},
+        ]
+        p._plugin_snapshots = {"p1": {}, "p2": {}}
+        result = asyncio.run(p.analyze_context(FakeEvent("context reset p1")))
+        self.assertIn("已重置插件: p1", result[0].text)
+        self.assertEqual([e["plugin"] for e in p._plugin_events], ["p2"])
+        result_all = asyncio.run(p.analyze_context(FakeEvent("context reset")))
+        self.assertIn("已重置所有插件状态和缓存", result_all[0].text)
+        self.assertEqual(p._plugin_events, [])
+
+    def test_v140_context_reset_denied_for_non_admin(self):
+        import asyncio
+        p = self._plugin()
+        p._plugin_events = [{"time": "t", "type": "loaded", "plugin": "p1", "details": {}}]
+        ev = FakeEvent("context reset", umo="default:GroupMessage:999")
+        result = asyncio.run(p.analyze_context(ev))
+        self.assertIn("没有执行此命令的权限", result[0].text)
+        self.assertEqual(len(p._plugin_events), 1)
+
+    def test_v140_context_log_and_legacy_log(self):
+        import asyncio
+        p = self._plugin()
+        p._plugin_events = [
+            {"time": "2026-08-01T08:30:00", "type": "loaded", "plugin": "p1", "details": {}},
+            {"time": "2026-08-01T09:00:00", "type": "error", "plugin": "p2", "details": {}},
+        ]
+        r1 = asyncio.run(p.analyze_context(FakeEvent("context log p1")))
+        self.assertIn("共 1 条", r1[0].text)
+        r2 = asyncio.run(p.show_log(FakeEvent("log")))
+        self.assertIn("共 2 条", r2[0].text)
+
+    def test_v140_context_status_and_plugins_dispatch(self):
+        import asyncio
+        p = self._plugin(stars=[FakeStar("p1", "1.0.0", True)])
+        p.config["enable_system_status"] = False
+        r1 = asyncio.run(p.analyze_context(FakeEvent("context status")))
+        self.assertIn("enable_system_status=false", r1[0].text)
+        r2 = asyncio.run(p.analyze_context(FakeEvent("/context plugins")))
+        self.assertIn("插件总数: 1", r2[0].text)
+
+    def test_v140_no_top_level_reset_command(self):
+        # reset_plugin 不再带 @filter.command("reset")，源码中不得出现顶层 reset 指令注册
+        import inspect
+        import astrbot_plugin_context_analyzer.main as mod
+        src = inspect.getsource(mod)
+        self.assertNotIn('@filter.command("reset"', src)
+        self.assertIn('@filter.command("log"', src)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

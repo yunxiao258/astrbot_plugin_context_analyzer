@@ -3,7 +3,7 @@
 AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监控、插件生命周期管理。v1.3.0 起新增情绪趋势分析、话题聚类与会话自动摘要，自动对群聊消息进行实时统计与摘要推送。
 
 - 作者：云晓
-- 版本：1.3.1
+- 版本：1.4.0
 - 许可证：MIT（详见 LICENSE）
 
 ## 功能
@@ -51,7 +51,7 @@ AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监�
 - 日报在事件统计基础上附加分析段落（v1.3.0）：昨日情绪分布 + 最近 7 天情绪趋势 + 今日话题 Top5（含话题摘要）
 - 手动触发：`/context daily` / `/context weekly`（管理员）
 
-### 系统状态（`/status`）
+### 系统状态（`/context status`，兼容 `/status`）
 - CPU、内存、磁盘使用率
 - 网络连接数（无权限时显示 N/A）
 - 插件激活状态、LLM 提供商配置
@@ -59,25 +59,26 @@ AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监�
 - 可选生成状态图表（需要 Pillow）
 - **仅管理员可用**
 
-### 插件管理（`/plugins`）
+### 插件管理（`/context plugins`，兼容 `/plugins`）
 - 插件列表（激活/未激活）与版本信息
 - 插件变更检测（新增/更新/删除），变更自动写入事件日志
 - 最近事件预览
 - **仅管理员可用**
 
-### 查看日志（`/log`）
-- 用法：`/log`（全部）或 `/log <插件名>`（按插件名过滤）
+### 查看日志（`/context log`，兼容 `/log`）
+- 用法：`/context log`（全部）或 `/context log <插件名>`（按插件名过滤）
 - 显示插件事件日志（加载/卸载/新增/更新/删除/错误），最近 20 条，超出显示剩余条数
 - 日志通过插件生命周期事件自动记录，无需手动操作
 - **仅管理员可用**
 
-### 重置缓存（`/reset`）
-- 用法：`/reset`（清空全部）或 `/reset <插件名>`（重置指定插件）
+### 重置缓存（`/context reset`）
+- 用法：`/context reset`（清空全部）或 `/context reset <插件名>`（重置指定插件）
+- v1.4.0 起不再注册顶层 `/reset`，`/reset` 交还给 AstrBot 内置指令（重置 LLM 对话）
 - 清空插件状态快照、事件日志与会话缓存
 - **仅管理员可用**
 
 ### 图表生成
-- `/context`、`/status`、`/plugins` 报告会附带生成 PNG 图表（`enable_charts` 开启且已安装 Pillow 时）
+- `/context`、`/context status`、`/context plugins` 报告会附带生成 PNG 图表（`enable_charts` 开启且已安装 Pillow 时）
 - 图表自动加载系统中文字体（msyh / simhei / simsun / Deng 等，找不到时回退默认字体）
 
 ## 指令说明
@@ -92,10 +93,10 @@ AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监�
 | `/analyze_topics [日期]` | 指定日期话题 Top5 + 一句话摘要 | 管理员 |
 | `/analyze_session` | 查看当前群活跃会话状态 | 管理员 |
 | `/analyze_session summary` | 对当前会话立即生成摘要 | 管理员 |
-| `/status` | 查看系统状态 | 管理员 |
-| `/plugins` | 查看插件列表与变更 | 管理员 |
-| `/log [插件名]` | 查看事件日志（可按插件名过滤） | 管理员 |
-| `/reset [插件名]` | 重置缓存（可指定插件名） | 管理员 |
+| `/context status` | 查看系统状态（兼容 `/status`） | 管理员 |
+| `/context plugins` | 查看插件列表与变更（兼容 `/plugins`） | 管理员 |
+| `/context log [插件名]` | 查看事件日志，可按插件名过滤（兼容 `/log`） | 管理员 |
+| `/context reset [插件名]` | 重置缓存，可指定插件名 | 管理员 |
 
 ## 配置
 
@@ -106,7 +107,7 @@ AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监�
 | `enable_charts` | 是否启用图表生成（需要 Pillow） | true |
 | `max_events` | 最大事件日志数量（内存与磁盘同步截断） | 500 |
 | `enable_system_status` | 是否启用系统状态监控（需要 psutil） | true |
-| `admin_umos` | 管理员会话 UMO 白名单（/status、/plugins、/log、/reset、/context export\|daily\|weekly、/analyze_* 仅限此列表），多个用英文逗号分隔；留空则上述命令全部不可用 | 空 |
+| `admin_umos` | 管理员会话 UMO 白名单（/context status\|plugins\|log\|reset\|export\|daily\|weekly、/analyze_* 及兼容别名 /status、/plugins、/log 仅限此列表），多个用英文逗号分隔；留空则上述命令全部不可用 | 空 |
 | `report_enabled` | 是否启用每日/每周自动报表 | false |
 | `report_umo` | 日报/周报推送目标会话 UMO，多个用英文逗号分隔 | 空 |
 | `report_time` | 每日日报触发时间（24 小时制 HH:MM，非法值回退 08:00）；周报在每周一该时刻随日报一并发送 | 08:00 |
@@ -141,12 +142,12 @@ AstrBot 群聊/私聊上下文分析插件：LLM 会话分析、系统状态监�
 /analyze_session              # 查看当前群活跃会话状态（管理员）
 /analyze_session summary      # 立即生成当前会话摘要（管理员）
 
-/status           # 查看系统状态（管理员）
-/plugins          # 查看插件列表和状态（管理员）
-/reset            # 重置所有缓存（管理员）
-/reset plugin名   # 重置指定插件（管理员）
-/log              # 查看所有事件日志（管理员）
-/log plugin名     # 查看指定插件事件日志（管理员）
+/context status           # 查看系统状态（管理员，兼容 /status）
+/context plugins          # 查看插件列表和状态（管理员，兼容 /plugins）
+/context reset            # 重置所有缓存（管理员）
+/context reset plugin名   # 重置指定插件（管理员）
+/context log              # 查看所有事件日志（管理员，兼容 /log）
+/context log plugin名     # 查看指定插件事件日志（管理员）
 ```
 
 ## 依赖
@@ -181,6 +182,10 @@ python test_new_features.py
 ```
 
 ## 更新记录
+
+### v1.4.0
+- 修复指令冲突：移除顶层 `/reset`（原以优先级 200 抢先于 AstrBot 内置 `/reset`，导致普通成员清空对话时收到“无权限”提示、管理员清空对话时误清插件事件日志），改为 `/context reset [插件名]`
+- 管理类指令统一收拢为 `/context status|plugins|log|reset` 子指令；`/status`、`/plugins`、`/log` 保留为兼容别名
 
 ### v1.3.1
 - 修复 `initialize()` 为同步函数导致 AstrBot v4.27+ `await` 加载失败的问题，改为标准 `async def initialize()` 并移除冗余 `on_astrbot_loaded` 钩子
