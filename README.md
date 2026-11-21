@@ -183,6 +183,9 @@ python test_new_features.py
 
 ## 更新记录
 
+### v1.5.0
+- 接入插件生态中枢标准联动协议：支持接收全生态防扰与运维外部审计事件并向管理面板输出健康总览
+
 ### v1.4.0
 - 修复指令冲突：移除顶层 `/reset`（原以优先级 200 抢先于 AstrBot 内置 `/reset`，导致普通成员清空对话时收到“无权限”提示、管理员清空对话时误清插件事件日志），改为 `/context reset [插件名]`
 - 管理类指令统一收拢为 `/context status|plugins|log|reset` 子指令；`/status`、`/plugins`、`/log` 保留为兼容别名

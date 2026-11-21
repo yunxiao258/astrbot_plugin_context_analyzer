@@ -19,7 +19,12 @@ from astrbot.core.star.star import StarMetadata
 PLUGIN_NAME = "astrbot_plugin_context_analyzer"
 PLUGIN_AUTHOR = "云晓"
 PLUGIN_DESC = "LLM 上下文分析、系统状态监控、插件生命周期管理"
-PLUGIN_VERSION = "1.4.0"
+try:
+    from .hub_bridge import HUB_PROTOCOL_VERSION, emit_hub_event
+except ImportError:
+    from hub_bridge import HUB_PROTOCOL_VERSION, emit_hub_event
+
+PLUGIN_VERSION = "1.5.0"
 
 # ========== 内置中文情绪词典（积极 ≥80 词） ==========
 POSITIVE_WORDS: tuple[str, ...] = (
@@ -81,6 +86,7 @@ SENTIMENT_NEGATIVE_THRESHOLD = -0.05  # 情绪分数低于该值判为消极
 
 @register(PLUGIN_NAME, PLUGIN_AUTHOR, PLUGIN_DESC, PLUGIN_VERSION)
 class ContextAnalyzerPlugin(Star):
+    HUB_PROTOCOL_VERSION = HUB_PROTOCOL_VERSION
     """LLM 上下文分析插件：分析会话状态、监控插件生命周期、查看系统状态"""
 
     def __init__(self, context: Context, config: AstrBotConfig = None):
@@ -1565,3 +1571,22 @@ class ContextAnalyzerPlugin(Star):
             self._save_daily_stats()
         except Exception:
             pass
+
+    def hub_status(self) -> dict:
+        return {
+            "version": PLUGIN_VERSION,
+            "status": "online",
+            "metrics": {"事件日志": len(self._plugin_events), "快照插件": len(self._plugin_snapshots), "统计天数": len(self._daily_stats)},
+            "actions": ["get_health_summary", "record_external_event"],
+        }
+
+    async def hub_action(self, action: str, params: dict | None = None) -> dict:
+        p = params or {}
+        if action == "get_health_summary":
+            return {"ok": True, "data": {"events_count": len(self._plugin_events), "recent_events": self._plugin_events[-15:], "daily_days": len(self._daily_stats)}}
+        if action == "record_external_event":
+            ev_type = str(p.get("event_type", "external"))[:60]
+            plug = str(p.get("plugin", "external"))[:80]
+            self._record_event(ev_type, plug, dict(p.get("details") or {}))
+            return {"ok": True, "data": {"recorded": ev_type, "total_events": len(self._plugin_events)}}
+        return {"ok": False, "error": f"不支持的动作：{action}"}
