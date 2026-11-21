@@ -24,7 +24,7 @@ try:
 except ImportError:
     from hub_bridge import HUB_PROTOCOL_VERSION, emit_hub_event
 
-PLUGIN_VERSION = "1.5.0"
+PLUGIN_VERSION = "1.5.1"
 
 # ========== 内置中文情绪词典（积极 ≥80 词） ==========
 POSITIVE_WORDS: tuple[str, ...] = (
@@ -66,7 +66,7 @@ STOP_WORDS: frozenset[str] = frozenset({
     "真的", "确实", "果然", "反正", "当然", "毕竟", "居然", "竟然", "到底",
     "究竟", "稍微", "有点", "有些", "一直", "一起", "一般", "刚才", "刚刚",
     "马上", "立刻", "突然", "忽然", "最终", "最后", "开始", "结束", "东西",
-    "事情", "问题", "情况", "时候", "还有", "觉得", "知道", "看到", "听到",
+    "事情", "问题", "情况", "觉得", "知道", "看到", "听到",
 })
 # 单字停用字（用于双字词/多字词过滤规则）
 STOP_CHARS: frozenset[str] = frozenset(
@@ -165,7 +165,10 @@ class ContextAnalyzerPlugin(Star):
         try:
             events_file = os.path.join(self.data_dir, "plugin_events.json")
             # 只保留最近 max_events 条事件（同时截断内存列表，避免无限增长）
-            max_events = int(self.config.get("max_events", 500) or 500)
+            try:
+                max_events = max(10, int(self.config.get("max_events", 500)))
+            except (TypeError, ValueError):
+                max_events = 500
             self._plugin_events = self._plugin_events[-max_events:]
             os.makedirs(os.path.dirname(events_file), exist_ok=True)
             tmp = events_file + ".tmp"
@@ -478,6 +481,7 @@ class ContextAnalyzerPlugin(Star):
         for umo in self._report_targets():
             try:
                 await self.context.send_message(umo, MessageChain([Plain(text)]))
+                emit_hub_event(PLUGIN_NAME, "context_analyzer.report_generated", {"umo": umo, "summary": text[:200]}, self.context)
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"发送日报到 {umo} 失败: {e}")
 
